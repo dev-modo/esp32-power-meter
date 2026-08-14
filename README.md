@@ -17,6 +17,7 @@ flowchart LR
 | [`firmware/`](firmware/) | ESP32 firmware (PlatformIO / Arduino IDE) — PZEM readings, WiFiManager pairing, status LED, reset button |
 | [`server/`](server/) | Python FastAPI backend — receives readings, stores them in SQLite, serves the dashboard API (Docker Compose ready) |
 | [`docs/`](docs/) | Static dashboard — served by GitHub Pages, shows live tiles + history charts for all metrics |
+| [`enclosure/`](enclosure/) | 3D-printable box and screw-on lid (OpenSCAD source + ready-to-slice STLs) |
 
 ## Hardware
 
@@ -40,6 +41,33 @@ flowchart LR
 **LED codes:** fast blink = pairing portal open · medium blink = connecting to WiFi · solid = connected and server reachable · slow blink = WiFi OK but server unreachable.
 
 **Button:** hold **5 seconds** to erase WiFi credentials and reboot into pairing mode (`PowerMeter-Setup` access point).
+
+## Mains electricity — read before you build
+
+This device connects to **230 V AC mains**. Mains voltage can kill you, and a
+fault inside a badly built monitor can start a fire inside your wall.
+
+**The 3D-printed enclosure in [`enclosure/`](enclosure/) is a bench and
+prototyping housing. It is not a certified mains enclosure and must not be used
+for a permanent, unattended installation.** Hobby filament has no UL 94
+flammability rating, no tracking rating and no glow-wire rating. For anything
+permanent, use an off-the-shelf ABS or PC IP65 junction box.
+
+At minimum, if you build this:
+
+- **Never print the enclosure in PLA** — PETG at minimum, V-0 rated ideally
+- **Fuse the voltage tap**: inline 500 mA–1 A *ceramic* HRC fuse, 250 V AC, in
+  the live sense lead; feed it from a fused spur or MCB way behind a 30 mA RCD
+- Use a **PZEM-004T v3.0 or v4.0** — earlier revisions lack opto-isolated TTL
+  and would put the ESP32 and its USB port at mains potential
+- **Never connect USB while the mains side is live**, and flash the firmware
+  with mains fully disconnected
+- Use **cable glands**, not bare holes, and separate the mains and low-voltage
+  sides inside the box
+- The CT clamps **one conductor only**, never live and neutral together
+
+Full detail in [`enclosure/README.md`](enclosure/README.md#mains-safety). If you
+are not confident working with mains, have an electrician do the connection.
 
 ## Getting started
 
