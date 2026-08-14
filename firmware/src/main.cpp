@@ -13,10 +13,15 @@
  *
  *  Any PZEM value that could not be read is sent as JSON null.
  *
- *  Wiring (see README.md for the full table):
- *      PZEM TX  -> GPIO16 (RX2)      LED    -> GPIO2  (onboard on most kits)
- *      PZEM RX  -> GPIO17 (TX2)      BUTTON -> GPIO13 to GND (INPUT_PULLUP)
- *      PZEM VCC -> 5V (VIN), GND -> GND
+ *  Wiring (see README.md for the full table and the reasons):
+ *      PZEM TX  -> GPIO4             LED    -> GPIO2 -> 220R -> LED -> GND
+ *      PZEM RX  -> GPIO25            BUTTON -> GPIO13 to GND (INPUT_PULLUP)
+ *      PZEM GND -> GND
+ *      PZEM 5V  -> the ESP32's 3V3 pin, NOT 5V. That header pin only feeds the
+ *                  optocoupler LEDs, and it sets the logic level of the PZEM's
+ *                  TX line: fed 5 V, TX idles at 5 V and overdrives the ESP32,
+ *                  whose GPIOs top out at 3.6 V. Fed 3.3 V, both directions are
+ *                  natively 3.3 V and need no level shifter.
  *
  *  LED status codes:
  *      fast blink  (150 ms)  config/pairing portal is open
@@ -55,8 +60,14 @@
 // ----------------------------------------------------------------------------
 static const int PIN_LED     = 2;   // status LED (onboard LED on most devkits)
 static const int PIN_BUTTON  = 13;  // factory-reset button to GND, INPUT_PULLUP
-static const int PIN_PZEM_RX = 16;  // ESP32 RX2  <- PZEM TX
-static const int PIN_PZEM_TX = 17;  // ESP32 TX2  -> PZEM RX
+// UART2 for the PZEM. NOT GPIO16/17, the classic choice: those are wired to the
+// PSRAM on every WROVER, on -N*R2 WROOM variants and on PICO-D4, where using
+// them either fails silently or crashes. GPIO4/25 are free on every ESP32
+// module, and are Espressif's own UART2 defaults from arduino-esp32 3.x onward
+// (changed from 16/17 for exactly this reason). ESP32 UART routes through the
+// GPIO matrix, so any free pins work at 9600 baud.
+static const int PIN_PZEM_RX = 4;   // ESP32 receives  <- PZEM TX
+static const int PIN_PZEM_TX = 25;  // ESP32 transmits -> PZEM RX
 
 // ----------------------------------------------------------------------------
 // Behaviour constants

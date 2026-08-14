@@ -13,23 +13,96 @@ reflashing needed to change networks or servers.
 
 ## Wiring
 
-| PZEM-004T pin | ESP32 pin        | Notes                                   |
-|---------------|------------------|-----------------------------------------|
-| TX            | GPIO16 (RX2)     | PZEM transmits → ESP32 receives         |
-| RX            | GPIO17 (TX2)     | ESP32 transmits → PZEM receives         |
-| VCC           | 5V (VIN)         | The PZEM logic side needs 5 V           |
-| GND           | GND              | Common ground                           |
+The PZEM has **two electrically separate sides** at opposite ends of the board.
+Only the 4-pin header touches the ESP32. The screw terminals are mains.
 
-| Peripheral | ESP32 pin | Notes                                                            |
-|------------|-----------|------------------------------------------------------------------|
-| LED        | GPIO2     | Onboard LED on most devkits; an external LED + 220 Ω to GND works too |
-| Button     | GPIO13    | Other leg to GND; firmware uses `INPUT_PULLUP`, no external resistor  |
+### Low-voltage side: the 4-pin header → ESP32
 
-**3.3 V note:** the PZEM-004T is powered from 5 V, but its UART logic side
-works fine at 3.3 V TTL, so its TX/RX lines can connect directly to the ESP32
-— no level shifter needed. (This applies to the common opto-isolated v3.0/100 A
-boards; on very old non-isolated revisions people sometimes add a 1 kΩ series
-resistor on the PZEM-TX line as cheap insurance.)
+The header is labelled, in order, **GND · TX · RX · 5V**. Trust the silkscreen
+text rather than counting pins — clone boards have been seen rotated.
+
+| PZEM header | ESP32 | Notes |
+|---|---|---|
+| GND | GND | Mandatory. Without it the opto interface cannot work at all. |
+| TX | **GPIO4** | PZEM transmits → ESP32 receives |
+| RX | **GPIO25** | ESP32 transmits → PZEM receives |
+| 5V | **3V3** ← *not* 5V | See the box below. This pin only feeds the optocoupler LEDs. |
+
+9600 baud, 8N1, Modbus-RTU. TX and RX **cross over**: each device's transmit
+goes to the other's receive. Wiring TX→TX is the usual reason a PZEM reads
+nothing — harmless, but you get `NAN` on every register.
+
+> [!WARNING]
+> **Feed that header's "5V" pin from 3.3 V, not 5 V.** An earlier version of
+> this file said to use 5 V and claimed no level shifter was needed. That
+> combination is wrong and stresses the ESP32.
+>
+> The TTL section is nothing but a connector, four 1 kΩ resistors and two
+> optocouplers — there is no regulator or level translation on it. The opto
+> output is open-collector with **`R4`, a 1 kΩ pull-up to that header pin**, so
+> whatever you feed it *becomes the logic level*. At 5 V the PZEM's TX idles at
+> 5 V into a GPIO specified for 3.6 V max (ESP32 datasheet Table 5-3,
+> V_IH max = VDD + 0.3). The RX line is worse than it looks: its opto LED is fed
+> from the same pin through `R8` = 1 kΩ, so whenever GPIO25 is not actively
+> pulling low — during reset, before `Serial2` is configured — RX floats to
+> ~4.9 V, and the ESP32's internal 45 kΩ pull-down cannot fight a 1 kΩ pull-up.
+> So at 5 V *both* pins are over-stressed.
+>
+> Many people run it at 5 V and report it working: the 1 kΩ limits injected
+> current to ~1.4 mA, which parts often survive. That is survival, not
+> compliance, and not what you want in a wall for years.
+>
+> **Powering it from 3.3 V makes both directions natively 3.3 V with no extra
+> parts.** The only consequence is less optocoupler current — about 2.1 mA
+> instead of 3.8 mA — still ample at 9600 baud, where one bit lasts 104 µs and
+> the optocoupler switches in microseconds. If reads are unreliable, solder a
+> second 1 kΩ across `R8` to restore ~4.2 mA.
+>
+> Two honest caveats. This is validated by the module schematic and widely used
+> (ESPHome and Tasmota both document it), but it is **not a vendor-sanctioned
+> mode** — Peacefair's manual only ever says "requires external 5V power supply"
+> and never states a logic level. It fails *safe*: too little opto current gives
+> `NAN` reads, never damage. And the board's TX/RX indicator LEDs go dim or dark
+> at 3.3 V, so don't diagnose from them.
+>
+> **If you must use 5 V**, the fix is one resistor, not a level shifter: a
+> **1.5 kΩ from the PZEM-TX / GPIO4 node to GND**, which forms a divider with the
+> internal 1 kΩ `R4` and lands at 3.00 V. The other direction needs nothing —
+> the ESP32's 3.3 V comfortably drives the PZEM's input.
+
+### LED and button
+
+| Peripheral | ESP32 | Notes |
+|---|---|---|
+| LED | GPIO2 → 220 Ω → LED **anode**; cathode → GND | Active-high. 220 Ω suits red/yellow/green; use 100 Ω for blue/white. The onboard LED on many devkits is already on GPIO2 with its own resistor. |
+| Button | GPIO13, other leg → GND | `INPUT_PULLUP`, no external resistor |
+
+GPIO2 is a **download-mode strapping pin**. Wire the LED active-high as above
+and it is fine; wiring it active-low or adding a pull-up can break flashing. If
+uploads ever turn flaky, disconnecting the GPIO2 LED is the first thing to try.
+
+GPIO13 is also JTAG TCK, which matters only if you ever want hardware debugging
+— you would need to unplug the button for that.
+
+### Why GPIO4 / GPIO25 and not the usual GPIO16 / GPIO17
+
+**GPIO16 and GPIO17 are wired to the PSRAM** on every ESP32-WROVER, on
+`-N4R2`/`-N8R2`/`-N16R2` WROOM variants, and on PICO-D4. Espressif's DevKitC
+guide is blunt: *"The pins GPIO16 and GPIO17 are available for use only on the
+boards with the modules ESP32-WROOM and ESP32-SOLO-1. The boards with
+ESP32-WROVER modules have the pins reserved for internal use."*
+
+GPIO4 and GPIO25 are free on every variant, and are Espressif's own UART2
+defaults from arduino-esp32 3.x onward — changed from 16/17 to *"avoid conflicts
+with other peripherals."* The ESP32 routes UART through its GPIO matrix, so any
+free pins work. If you have a plain WROOM-32 and prefer 16/17, they will work;
+just change `PIN_PZEM_RX` / `PIN_PZEM_TX`.
+
+### Powering it
+
+**Use exactly one 5 V source for the ESP32** — either USB or an external supply
+into 5V/VIN, never both at once. Some clone devkits omit the protection diode,
+and back-feeding the USB rail can damage the board or the host.
 
 ## LED status codes
 
@@ -184,9 +257,16 @@ configured default.
 
 ## Troubleshooting
 
-- **All readings `null` / "no response" in the log** — TX/RX swapped (PZEM TX
-  must go to GPIO16), or the PZEM isn't getting 5 V. Note the PZEM only
-  measures when its mains side is live.
+- **All readings `null` / "no response" in the log** — in rough order of
+  likelihood: TX/RX swapped (PZEM TX must go to **GPIO4**); the 4-pin header's
+  GND not connected (all four pins are required); the header unpowered; or you
+  are on a WROVER/PSRAM board still wired to GPIO16/17. Note the PZEM only
+  measures when its **mains side is live** — a bench-powered module with no
+  mains reports nothing, which looks identical to a wiring fault.
+- **Voltage reads fine but current sits at 0.00 A** — the CT is almost certainly
+  clamped around **both** live and neutral, so the two currents cancel. It must
+  go around one conductor only. Also check the split core is fully latched
+  closed; anything below the 0.02 A starting current reads as zero.
 - **Slow LED blink** — the ESP32 has WiFi but can't reach the server: check
   the server URL (including the `:8000` port), that the server is running,
   and the API key. Exact HTTP errors are printed on the serial monitor.
