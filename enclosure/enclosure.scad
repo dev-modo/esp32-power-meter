@@ -11,22 +11,29 @@
    the one orientation rule that matters.
 
    ---------------------------------------------------------------------------
-   WHY THIS IS 32 mm TALL AND NOT 20 mm
+   SIZE: 100 x 80 x 30 mm outside, giving a 96 x 76 x 25 mm cavity
    ---------------------------------------------------------------------------
-   20 mm was the original target, and the footprint is unchanged at 150 x 100.
-   But the PZEM-004T does not fit in it. Its 5.08 mm-pitch screw terminals
-   stand 10.0 mm above the PCB, so the real stack is
+   Both boards fit, but only in one orientation. Lay them side by side with
+   their long axes along the 96 mm direction:
+
+       PZEM-004T   74 x 31 mm  |  ESP32 devkit  55 x 28 mm
+       31 + 28 = 59 mm across the 76 mm width -> 17 mm spare
+       longest board 74 mm along the 96 mm length -> fits
+
+   Turned the other way the PZEM's 74 mm length would have only 76 mm to sit
+   in, which leaves nothing for the ESP32 beside it. So: lengthwise.
+
+   On height, the PZEM is what sets the floor. Its 5.08 mm-pitch screw
+   terminals stand 10.0 mm above the PCB, so the stack is
 
        5.0 mm standoff + 1.6 mm PCB + 10.0 mm terminal block = 16.6 mm
 
-   against a 16 mm cavity — over budget before a single wire is routed, and
-   some vendors list the whole module at 16-18 mm tall, which would not fit
-   even sitting straight on the floor. A socketed ESP32 devkit is 13-18 mm too.
+   which is why this cannot be a 20 mm box: that would leave a 16 mm cavity,
+   over budget before a single wire is routed. At 30 mm the cavity is 25 mm,
+   leaving 8.4 mm of headroom for wiring above the terminals.
 
-   outer_z = 32 gives a 26 mm cavity: comfortable for both boards, a slack
-   loop of mains cable, and a cable gland that has real material to bite into.
-   If you are using different hardware, measure it and set outer_z yourself —
-   everything else derives from it.
+   Using different hardware? Measure it and set the three outer_ values —
+   everything else derives from them.
    ========================================================================= */
 
 // ----------------------------------------------------------------- parts ----
@@ -34,9 +41,9 @@
 part = "both";
 
 // ------------------------------------------------------------ dimensions ----
-outer_x   = 150;  // length, outside
-outer_y   = 100;  // width, outside
-outer_z   = 32;   // TOTAL height including the lid — see note above
+outer_x   = 100;  // length, outside
+outer_y   = 80;   // width, outside
+outer_z   = 30;   // TOTAL height including the lid — see note above
 wall      = 2;    // side wall thickness  (use 3 for a mains build)
 floor_t   = 2;    // base thickness       (use 3 for a mains build)
 lid_t     = 3;    // lid thickness — 3 not 2, see the lid stiffness note
@@ -93,8 +100,9 @@ screw_depth   = 10;    // ditto — stays inside gusset_top_h, see below
       mostly dead weight. The gusset is full size for the top gusset_top_h and
       then tapers down to gusset_l_base at the floor.
 
-   Measured off the rendered STLs, the four gussets went from 7.78 cm3 to
-   2.35 cm3 — a 70% cut, 5.4 cm3 of filament, about 8% of the whole box.
+   Measured off the rendered STLs at the default size, the four gussets cost
+   2.26 cm3 rather than the 7.20 cm3 an M3-sized full-height version would —
+   a 69% cut, 4.9 cm3 of filament, about 12% of the whole box.
 
    The taper still needs no supports: its downward faces sit 66.5 degrees off
    straight-down, well clear of the 45 degrees FDM needs, and the whole box
@@ -151,7 +159,9 @@ holes_x1 = [];   // right end  e.g. [[ 30, 12.5, mid_z ], [ 65, 12.5, mid_z ]]
 // live terminals and touchable low-voltage parts in the same space.
 // Off by default only because the right position depends on your layout.
 divider       = false;
-divider_x     = 60;   // barrier centreline; mains zone is x < divider_x
+// Proportional rather than a fixed number, so it cannot land outside the box
+// when outer_x changes. Move it to suit your actual layout.
+divider_x     = outer_x * 0.45;   // barrier centreline; mains zone is x < this
 divider_t     = 3;
 divider_notch_w = 8;  // pass-through for the 4 UART/5 V wires
 divider_notch_h = 6;
@@ -178,7 +188,7 @@ ear_w       = 14;
 ear_d       = 10;
 ear_t       = 3;
 ear_hole_d  = 4.5;
-ear_x       = [ 25, 125 ];
+ear_x       = [ outer_x * 0.2, outer_x * 0.8 ];
 
 // Zip-tie slots in the floor — mounting that works whatever the hole spacing.
 // They PIERCE the floor, so keep them off for any mains build.
@@ -186,7 +196,7 @@ tie_slots     = false;
 tie_slot_w    = 3;
 tie_slot_l    = 10;
 tie_slot_gap  = 20;
-tie_positions = [[ 40, 50 ], [ 110, 50 ]];
+tie_positions = [[ outer_x * 0.3, outer_y / 2 ], [ outer_x * 0.7, outer_y / 2 ]];
 
 $fn = 48;
 

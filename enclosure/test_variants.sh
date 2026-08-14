@@ -55,19 +55,24 @@ printf "  %-32s " "zero penetrations in box.stl"
 openscad -D 'part="box"' -o /tmp/sealed.stl enclosure.scad >/dev/null 2>&1
 python3 - <<'PY'
 import collections, sys
+# Derive the extents from the geometry rather than hardcoding them, so this
+# keeps testing the right planes when the box is resized.
+pts = [tuple(round(float(v), 3) for v in l.split()[1:4])
+       for l in open('/tmp/sealed.stl') if l.strip().startswith('vertex')]
+X = max(p[0] for p in pts); Y = max(p[1] for p in pts); Z = max(p[2] for p in pts)
 planes = collections.defaultdict(set); rim = set()
-for line in open('/tmp/sealed.stl'):
-    s = line.strip()
-    if s.startswith('vertex'):
-        x, y, z = [round(float(v), 3) for v in s.split()[1:4]]
-        for key, cond in (('x0', abs(x) < 1e-3), ('x1', abs(x-150) < 1e-3),
-                          ('y0', abs(y) < 1e-3), ('y1', abs(y-100) < 1e-3)):
-            if cond: planes[key].add((x+y, z))
-        if abs(z-29) < 1e-3: rim.add((x, y))
-bad = [k for k in ('x0','x1','y0','y1') if len(planes[k]) > 6]
+for x, y, z in pts:
+    if abs(x)     < 1e-3: planes['x0'].add((y, z))
+    if abs(x - X) < 1e-3: planes['x1'].add((y, z))
+    if abs(y)     < 1e-3: planes['y0'].add((x, z))
+    if abs(y - Y) < 1e-3: planes['y1'].add((x, z))
+    if abs(z - Z) < 1e-3: rim.add((x, y))
+# A sealed side face is a plain rectangle: 4 vertices. A hole would add a ring.
+bad = [k for k in ('x0', 'x1', 'y0', 'y1') if len(planes[k]) > 6]
+# The rim is the outer rectangle plus two diagonal ends per corner gusset = 12.
 if bad or len(rim) > 16:
     print(f"FAIL  penetrated faces={bad} rim_vertices={len(rim)}"); sys.exit(1)
-print("PASS  (4 plain faces, no pilot holes in the rim)")
+print(f"PASS  (box {X:g}x{Y:g}x{Z:g}, 4 plain faces, no holes in the rim)")
 PY
 
 echo "=== both parts must print without supports ==="

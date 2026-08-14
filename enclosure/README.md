@@ -6,8 +6,8 @@ A 3D-printable box with a screw-on lid for the power meter.
 
 | | |
 |---|---|
-| **Outside** | 150 × 100 × 32 mm |
-| **Inside** | 146 × 96 × 27 mm |
+| **Outside** | 100 × 80 × 30 mm |
+| **Inside** | 96 × 76 × 25 mm |
 | **Walls / floor / lid** | 2 mm / 2 mm / 3 mm |
 | **Fixings** | 4 × M2 self-tapping screws, 12 mm (one per corner) |
 | **Openings** | **none at all in the box** — not even screw pilots. Drill to suit. |
@@ -34,26 +34,38 @@ openscad -D 'part="lid"' -o lid.stl enclosure.scad
 ./test_variants.sh          # 14 configurations, all must report manifold
 ```
 
-## Why it is 32 mm tall and not 20
+## Will your boards fit?
 
-20 mm was the original target and the footprint is unchanged, but **the
-PZEM-004T does not fit in it.** Its 5.08 mm-pitch screw terminals stand 10.0 mm
-above the PCB, so the real stack is:
+Yes, but **lay them out lengthwise** — that is the one constraint at this size.
+Side by side with their long axes along the 96 mm direction:
 
 ```
-  5.0 mm   M3 standoff (clears the terminal's 3.7 mm pins underneath)
+  PZEM-004T   74 x 31 mm   |   ESP32 devkit   55 x 28 mm
+
+  31 + 28 = 59 mm across the 76 mm width   ->  17 mm spare
+  longest board 74 mm along the 96 mm length  ->  fits
+```
+
+Turned the other way, the PZEM's 74 mm length would have only 76 mm to sit in,
+leaving nothing for the ESP32 beside it.
+
+**On height, the PZEM sets the floor**, and it is why this cannot be a 20 mm box.
+Its 5.08 mm-pitch screw terminals stand 10.0 mm above the PCB:
+
+```
+  5.0 mm   M3 nylon standoff (clears the terminal's 3.7 mm pins underneath)
 + 1.6 mm   PCB
 + 10.0 mm  screw terminal block
-= 16.6 mm  against a 16 mm cavity — over budget with zero room for wiring
+= 16.6 mm  — a 20 mm box gives a 16 mm cavity, so it does not close
 ```
 
-Some vendors list the whole module at 16–18 mm tall, which would not fit even
-sitting flat on the floor. A socketed ESP32 devkit is 13–18 mm as well. At
-`outer_z = 32` the cavity is 27 mm, which takes both boards, a slack loop of
-cable, and a gland with real material around it.
+At 30 mm the cavity is 25 mm, leaving **8.4 mm of headroom** for wiring above the
+terminals. Some vendors list the whole module at 16–18 mm tall, so if yours is one
+of those, put a caliper on it before printing.
 
-Using different hardware? Measure it and set `outer_z` — everything else
-derives from it, and the file prints a warning if the cavity drops below 22 mm.
+Using different hardware? Measure it and set the three `outer_` values —
+everything else derives from them, and the file prints a warning if the cavity
+drops below 22 mm.
 
 ## Screws
 
@@ -76,8 +88,9 @@ prism in each corner is mostly plastic doing nothing:
 - The screw only engages the top 10 mm, so the gusset is full size for the top
   14 mm and then **tapers down** to a 4 mm footprint at the floor.
 
-Measured off the rendered STLs, that took the four gussets from **7.78 cm³ to
-2.35 cm³ — a 70% cut**, 5.4 cm³ of filament, about 8% of the whole box. The
+Measured off the rendered STLs at this size, that takes the four gussets from
+**7.20 cm³ to 2.26 cm³ — a 69% cut**, 4.9 cm³ of filament, about 12% of the whole
+box. The
 taper still needs no supports: its downward faces sit 66.5° off straight-down,
 comfortably clear of the 45° limit, and `test_variants.sh` asserts no facet in
 either part falls below that.
@@ -97,13 +110,15 @@ is the usual failure with pre-modelled holes and a slightly shrunk print.
 
 Prefer them modelled? Set `pilot_holes = true`.
 
-One honest trade-off with corner-only fixing: the lid is unsupported across the
-full 146 mm and 96 mm spans, so a 3 mm lid bows roughly half a millimetre at the
-middle of each edge and the seam can show a hairline gap mid-span. It closes and
-sits flat enough to look right — it just is not clamped in the middle. If that
-bothers you, raise `lid_t` to 4, or uncomment the mid-wall positions in
-`screw_xy()` to go back to eight (they would need their own bosses, since the
-gussets only cover corners).
+Four screws were a concern at the original 150 × 100 size, where the lid spanned
+146 mm unsupported and a 3 mm plate bowed about half a millimetre mid-edge. **At
+96 × 76 that worry mostly goes away** — plate deflection scales with the fourth
+power of the span, so shrinking it to 96 mm cuts the bow to under a fifth of that,
+around 0.1 mm. Corner-only fixing is genuinely fine here.
+
+If you ever scale the box back up and the seam starts showing a gap mid-span,
+raise `lid_t` to 4 or uncomment the mid-wall positions in `screw_xy()` (they would
+need their own bosses, since the gussets only cover corners).
 
 Use a **slightly bigger bit than the textbook 1.6 mm** for M2. In moulded plastic
 1.6 is right; in a printed part a tight pilot splits the material on first
@@ -127,7 +142,7 @@ material for it without any other change.
 Both parts sit flat on the bed and need **no supports**.
 
 > The lid is modelled lip-**up**, which is how it must print. Do not flip it
-> lip-down — that suspends the whole 150 × 100 plate over the lip and needs
+> lip-down — that suspends the whole 100 × 80 plate over the lip and needs
 > full supports. Want a nicer outer face? Use a textured build plate.
 
 | Setting | Value |
@@ -145,8 +160,8 @@ Wall loops matter more than they look: at 4 × 0.50 mm the 2 mm wall comes out a
 one continuous solid. Leave the default 0.45 mm width and you get gap-fill and a
 sliver of infill inside a wall that should be solid.
 
-The 150 × 100 mm footprint fits an Ender 3 (220²) and a Prusa MK3 (250 × 210),
-but **not a Bambu A1 mini (180²)** diagonally-unfriendly — check before you slice.
+The 100 × 80 mm footprint fits every common printer, including a Bambu A1 mini
+(180²), which the earlier 150 × 100 version did not.
 
 If the lid binds, increase `lip_clear` (0.45 default, try 0.6). It tapers inward
 as it rises so it self-centres, which forgives a little wall bow.
@@ -189,7 +204,7 @@ pin sticking out below the PCB**, so it needs a standoff of at least 7–8 mm. T
 obvious 4 mm jams the pins into the floor.
 
 `mount_ears = true` adds external wall-mounting tabs (this grows the footprint to
-150 × 120). Never screw through the bare floor instead — it breaches the
+100 × 100). Never screw through the bare floor instead — it breaches the
 enclosure and cracks the 2 mm base.
 
 ## Mains safety
