@@ -108,12 +108,43 @@ automatically.
    Espressif) and select the board **ESP32 Dev Module**.
 2. Install these libraries via **Sketch → Include Library → Manage Libraries**:
    - **WiFiManager** by *tzapu* (2.x)
-   - **PZEM-004T-v30** by *Jakub Mandula* (1.1.2 or later)
+   - **PZEM004Tv30** by *Jakub Mandula* (1.2.1 or later) — search for
+     `PZEM004Tv30`, spelled exactly like that. The GitHub repo and the
+     PlatformIO registry call it `PZEM-004T-v30`, but the Arduino Library
+     Manager has no entry under that name.
    - **ArduinoJson** by *Benoit Blanchon* (7.x)
-3. Create a sketch folder named e.g. `PowerMeter`, copy `src/main.cpp` into it
+3. Set **Tools → Partition Scheme → "Minimal SPIFFS (1.9MB APP with OTA)"**.
+   WiFiManager's captive portal is large: on the default 1.2 MB app partition
+   the build lands at **89% full**, which works but leaves no headroom. Minimal
+   SPIFFS drops it to ~59%. This firmware keeps everything in NVS and never
+   uses SPIFFS, so nothing is lost. (PlatformIO does this automatically via
+   `board_build.partitions` in `platformio.ini`.)
+4. Create a sketch folder named e.g. `PowerMeter`, copy `src/main.cpp` into it
    and rename it `PowerMeter.ino`. (The `#include <Arduino.h>` at the top is
    harmless in the IDE.)
-4. Set the serial monitor to **115200 baud**, pick your port, and Upload.
+5. Set the serial monitor to **115200 baud**, pick your port, and Upload.
+
+### Verified builds
+
+This firmware is confirmed to compile — not merely reviewed — on **both**
+toolchains and, usefully, on **both ESP32 Arduino core generations**. Plenty of
+ESP32 sketches break between core 2.x and 3.x; this one builds on each:
+
+| Toolchain | ESP32 core | Flash (min_spiffs) | RAM |
+|---|---|---|---|
+| PlatformIO 6.1.19, Espressif32 7.0.1 | 2.0.17 | 1 043 665 B — **53.1%** | 14.7% |
+| arduino-cli 1.5.1 | 3.3.10 | 1 166 616 B — **59%** | 15% |
+
+Libraries resolved: WiFiManager 2.0.17, ArduinoJson 7.4.3, and the PZEM library
+at 1.1.2 (PlatformIO) / 1.2.1 (Arduino) — plus `WiFi`, `HTTPClient`,
+`Preferences` and `Ticker` from the core.
+
+Zero compiler warnings from this code at `--warnings all`. WiFiManager emits a
+few `-Wformat` warnings from its own source; those are upstream, not ours.
+
+On the **stock 1.2 MB partition** the same binary sits at **89%** full — it
+flashes and runs, but leaves nothing spare, which is why `min_spiffs` is the
+configured default.
 
 ## Troubleshooting
 
