@@ -62,10 +62,18 @@ if (cav_z < CAV_Z_MIN)
 //   PLA 2.8   |   PETG / ABS / ASA 2.6   |   nylon 2.4
 // Better still, use M3 heat-set brass inserts (4.6 mm OD): set screw_pilot_d
 // to your insert's bore (typically 4.0) and boss_d to 9.
-screw_pilot_d = 2.7;
 screw_free_d  = 3.3;   // clearance hole through the lid
-screw_depth   = 12;    // depth of the pilot hole
 screw_inset   = 5;     // screw centre, in from both outer faces
+
+// The BOX prints with no holes at all — the corner gussets are left solid and
+// you drill the pilots yourself. Do it with the lid as a template: sit the lid
+// on the box, drill down through its clearance holes into the gussets, and the
+// two parts cannot end up misaligned. There is 16 mm of solid plastic to drill
+// into, so a hand drill is fine. Use 2.8 mm in PLA, 2.6 in PETG/ABS/ASA.
+// Set this true if you would rather have them modelled.
+pilot_holes   = false;
+screw_pilot_d = 2.7;   // only used when pilot_holes = true
+screw_depth   = 12;    // ditto
 
 // The screws do NOT land in cylindrical posts. Each corner is filled solid with
 // a 45-degree gusset running gusset_l along both walls, so the screw material
@@ -232,10 +240,11 @@ module box() {
         }
     }
 
-    // Pilot holes, down from the rim.
-    for (p = screw_xy())
-      translate([ p[0], p[1], box_h - screw_depth ])
-        cylinder(d = screw_pilot_d, h = screw_depth + 0.1);
+    // Pilot holes, down from the rim. Off by default — see pilot_holes above.
+    if (pilot_holes)
+      for (p = screw_xy())
+        translate([ p[0], p[1], box_h - screw_depth ])
+          cylinder(d = screw_pilot_d, h = screw_depth + 0.1);
 
     // Standoff pilot holes.
     for (s = standoffs)

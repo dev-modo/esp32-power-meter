@@ -10,7 +10,7 @@ A 3D-printable box with a screw-on lid for the power meter.
 | **Inside** | 146 × 96 × 27 mm |
 | **Walls / floor / lid** | 2 mm / 2 mm / 3 mm |
 | **Fixings** | 4 × M3 self-tapping screws, 12 mm (one per corner) |
-| **Openings** | none — the box prints sealed, drill entries to suit |
+| **Openings** | **none at all in the box** — not even screw pilots. Drill to suit. |
 | **Supports** | none, either part |
 
 > [!WARNING]
@@ -65,6 +65,22 @@ corner. It reads as part of the shell rather than a cylinder stuck onto it, and
 there is no thin post-to-wall junction to crack along. The lid's locating lip is
 cut back around each gusset so it never fouls them.
 
+### Drilling the pilots
+
+**The box prints with no screw holes** — the gussets are left solid. Use the lid
+as a drill template:
+
+1. Sit the lid on the box, lined up with the outside edges.
+2. Drill down through the lid's four clearance holes into the gussets.
+3. Aim for about 12 mm deep. There is 16 mm of solid plastic there, so a hand
+   drill is plenty.
+
+Doing it this way means the two parts physically cannot end up misaligned, which
+is the usual failure with pre-modelled holes and a slightly shrunk print. Drill
+**2.8 mm in PLA, 2.6 mm in PETG/ABS/ASA** — see the table below.
+
+Prefer them modelled? Set `pilot_holes = true`.
+
 One honest trade-off with corner-only fixing: the lid is unsupported across the
 full 146 mm and 96 mm spans, so a 3 mm lid bows roughly half a millimetre at the
 middle of each edge and the seam can show a hairline gap mid-span. It closes and
@@ -73,14 +89,15 @@ bothers you, raise `lid_t` to 4, or uncomment the mid-wall positions in
 `screw_xy()` to go back to eight (they would need their own bosses, since the
 gussets only cover corners).
 
-The pilot holes are **2.7 mm**, not the textbook 2.5 mm for M3, because 2.5
-splits printed plastic on first assembly. Tune to your material:
+Use a **bigger bit than the textbook 2.5 mm** for M3. In moulded plastic 2.5 is
+right; in a printed part it splits the material on first assembly, because the
+layers give it a plane to split along.
 
-| Material | `screw_pilot_d` |
+| Material | Pilot |
 |---|---|
-| PLA | 2.8 |
-| PETG / ABS / ASA | 2.6 |
-| Nylon | 2.4 |
+| PLA | 2.8 mm |
+| PETG / ABS / ASA | 2.6 mm |
+| Nylon | 2.4 mm |
 
 Hand-tighten to roughly 0.2 Nm with a hex or Torx driver. A Phillips cams out
 and tempts you to lean on it; a power driver will strip the thread. If the box

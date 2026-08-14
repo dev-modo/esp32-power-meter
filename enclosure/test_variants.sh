@@ -28,6 +28,7 @@ check "divider+ears+ties"   openscad -D 'part="box"' -D divider=true -D mount_ea
 check "mains: wall/floor 3" openscad -D 'part="box"' -D wall=3 -D floor_t=3 -o /tmp/s6.stl enclosure.scad
 check "standoffs populated" openscad -D 'part="box"' -D standoffs="[[12,20,8,6,2.2],[82,20,8,6,2.2],[12,58,8,6,2.2],[82,58,8,6,2.2]]" -o /tmp/s7.stl enclosure.scad
 check "tall 40mm"           openscad -D 'part="box"' -D outer_z=40 -o /tmp/s8.stl enclosure.scad
+check "pilot_holes modelled" openscad -D 'part="box"' -D pilot_holes=true -o /tmp/s9.stl enclosure.scad
 
 echo "=== lid variants ==="
 check "defaults"            openscad -D 'part="lid"' -o /tmp/l1.stl enclosure.scad
@@ -48,3 +49,23 @@ if openscad -D 'part="box"' -D outer_z=32 -o /tmp/w2.stl enclosure.scad 2>&1 | g
 else
   echo "PASS  (silent)"
 fi
+
+echo "=== the box must print with no holes at all ==="
+printf "  %-32s " "zero penetrations in box.stl"
+openscad -D 'part="box"' -o /tmp/sealed.stl enclosure.scad >/dev/null 2>&1
+python3 - <<'PY'
+import collections, sys
+planes = collections.defaultdict(set); rim = set()
+for line in open('/tmp/sealed.stl'):
+    s = line.strip()
+    if s.startswith('vertex'):
+        x, y, z = [round(float(v), 3) for v in s.split()[1:4]]
+        for key, cond in (('x0', abs(x) < 1e-3), ('x1', abs(x-150) < 1e-3),
+                          ('y0', abs(y) < 1e-3), ('y1', abs(y-100) < 1e-3)):
+            if cond: planes[key].add((x+y, z))
+        if abs(z-29) < 1e-3: rim.add((x, y))
+bad = [k for k in ('x0','x1','y0','y1') if len(planes[k]) > 6]
+if bad or len(rim) > 16:
+    print(f"FAIL  penetrated faces={bad} rim_vertices={len(rim)}"); sys.exit(1)
+print("PASS  (4 plain faces, no pilot holes in the rim)")
+PY
