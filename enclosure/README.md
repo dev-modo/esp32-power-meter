@@ -9,7 +9,7 @@ A 3D-printable box with a screw-on lid for the power meter.
 | **Outside** | 150 × 100 × 32 mm |
 | **Inside** | 146 × 96 × 27 mm |
 | **Walls / floor / lid** | 2 mm / 2 mm / 3 mm |
-| **Fixings** | 4 × M3 self-tapping screws, 12 mm (one per corner) |
+| **Fixings** | 4 × M2 self-tapping screws, 12 mm (one per corner) |
 | **Openings** | **none at all in the box** — not even screw pilots. Drill to suit. |
 | **Supports** | none, either part |
 
@@ -57,13 +57,30 @@ derives from it, and the file prints a warning if the cavity drops below 22 mm.
 
 ## Screws
 
-**4 × M3 self-tapping, 12 mm** — one per corner.
+**4 × M2 self-tapping, 12 mm** — one per corner. With the 3 mm lid that gives
+about 9 mm of thread engagement.
 
-They do not thread into cylindrical posts. Each corner is filled solid with a
-**45° gusset** running 16 mm along both walls, so the screw material *is* the
-corner. It reads as part of the shell rather than a cylinder stuck onto it, and
-there is no thin post-to-wall junction to crack along. The lid's locating lip is
-cut back around each gusset so it never fouls them.
+They do not thread into cylindrical posts. Each corner is filled with a **45°
+gusset** running 12 mm along both walls, so the screw material *is* the corner.
+It reads as part of the shell rather than a cylinder stuck onto it, and there is
+no thin post-to-wall junction to crack along. The lid's locating lip is cut back
+around each gusset so it never fouls them.
+
+The gussets are also **kept as small as the job allows**, because a full-height
+prism in each corner is mostly plastic doing nothing:
+
+- M2 needs far less meat than M3. At 12 mm with the screw 4 mm in, there is
+  1.95 mm of material around the pilot out to the diagonal face — above the
+  ~1.5 mm that thread-forming into plastic wants. Any smaller and the diagonal
+  starts cutting into the hole.
+- The screw only engages the top 10 mm, so the gusset is full size for the top
+  14 mm and then **tapers down** to a 4 mm footprint at the floor.
+
+Measured off the rendered STLs, that took the four gussets from **7.78 cm³ to
+2.35 cm³ — a 70% cut**, 5.4 cm³ of filament, about 8% of the whole box. The
+taper still needs no supports: its downward faces sit 66.5° off straight-down,
+comfortably clear of the 45° limit, and `test_variants.sh` asserts no facet in
+either part falls below that.
 
 ### Drilling the pilots
 
@@ -72,12 +89,11 @@ as a drill template:
 
 1. Sit the lid on the box, lined up with the outside edges.
 2. Drill down through the lid's four clearance holes into the gussets.
-3. Aim for about 12 mm deep. There is 16 mm of solid plastic there, so a hand
-   drill is plenty.
+3. Aim for about 10 mm deep — that stays inside the full-size top section of the
+   gusset. A hand drill is plenty.
 
 Doing it this way means the two parts physically cannot end up misaligned, which
-is the usual failure with pre-modelled holes and a slightly shrunk print. Drill
-**2.8 mm in PLA, 2.6 mm in PETG/ABS/ASA** — see the table below.
+is the usual failure with pre-modelled holes and a slightly shrunk print.
 
 Prefer them modelled? Set `pilot_holes = true`.
 
@@ -89,21 +105,22 @@ bothers you, raise `lid_t` to 4, or uncomment the mid-wall positions in
 `screw_xy()` to go back to eight (they would need their own bosses, since the
 gussets only cover corners).
 
-Use a **bigger bit than the textbook 2.5 mm** for M3. In moulded plastic 2.5 is
-right; in a printed part it splits the material on first assembly, because the
-layers give it a plane to split along.
+Use a **slightly bigger bit than the textbook 1.6 mm** for M2. In moulded plastic
+1.6 is right; in a printed part a tight pilot splits the material on first
+assembly, because the layers give it a plane to split along.
 
 | Material | Pilot |
 |---|---|
-| PLA | 2.8 mm |
-| PETG / ABS / ASA | 2.6 mm |
-| Nylon | 2.4 mm |
+| PLA | 1.8 mm |
+| PETG / ABS / ASA | 1.7 mm |
+| Nylon | 1.6 mm |
 
-Hand-tighten to roughly 0.2 Nm with a hex or Torx driver. A Phillips cams out
-and tempts you to lean on it; a power driver will strip the thread. If the box
-will be opened often, use **M3 heat-set brass inserts** instead — set
-`screw_pilot_d` to the insert bore (typically 4.0). The gussets have plenty of
-material for them without any other change.
+Hand-tighten only — roughly **0.1 Nm**, which is not much; M2 threads in plastic
+strip easily. Use a hex or Torx driver rather than a Phillips, which cams out and
+tempts you to lean on it, and never a power driver. If the box will be opened
+often, use **M2 heat-set brass inserts** instead (typically 3.2 mm OD × 4 mm) —
+set `screw_pilot_d` to the insert bore and drill for that. The gussets have the
+material for it without any other change.
 
 ## Printing
 
@@ -208,7 +225,7 @@ If you do build it in plastic you printed yourself:
   button while mains is connected, and **never plug in USB while the mains side
   is live.** Flash and debug with mains fully disconnected.
 - **Keep every metal part inaccessible.** The screw shafts pass into the cavity.
-  Use nylon M3 screws, or raise `lid_t` to 3.5, enable `lid_counterbore` and plug
+  Use nylon M2 screws, or raise `lid_t` to 3.5, enable `lid_counterbore` and plug
   the recesses. Plastic-bodied button and LED bezel, both on the low-voltage
   side. Nylon glands. This is a Class II design — do not try to earth a printed
   box.

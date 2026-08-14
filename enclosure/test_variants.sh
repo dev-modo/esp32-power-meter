@@ -69,3 +69,27 @@ if bad or len(rim) > 16:
     print(f"FAIL  penetrated faces={bad} rim_vertices={len(rim)}"); sys.exit(1)
 print("PASS  (4 plain faces, no pilot holes in the rim)")
 PY
+
+echo "=== both parts must print without supports ==="
+for p in box lid; do
+  printf "  %-32s " "$p: no facet under 45 deg"
+  openscad -D "part=\"$p\"" -o "/tmp/ov_$p.stl" enclosure.scad >/dev/null 2>&1
+  python3 - "/tmp/ov_$p.stl" <<'PY'
+import math, sys
+worst = 90.0
+n = None; vs = []
+for line in open(sys.argv[1]):
+    s = line.strip()
+    if s.startswith('facet normal'):
+        n = [float(x) for x in s.split()[2:5]]; vs = []
+    elif s.startswith('vertex'):
+        vs.append([float(x) for x in s.split()[1:4]])
+        if len(vs) == 3:
+            if n[2] < -1e-6 and not all(abs(v[2]) < 1e-6 for v in vs):
+                mag = math.sqrt(sum(c*c for c in n))
+                worst = min(worst, math.degrees(math.acos(min(1, max(-1, -n[2]/mag)))))
+            vs = []
+print(f"{'PASS' if worst >= 45 else 'FAIL'}  (shallowest {worst:.1f} deg from straight down)")
+sys.exit(0 if worst >= 45 else 1)
+PY
+done
