@@ -3,7 +3,7 @@
  *  ESP32 Power Meter — firmware
  * ============================================================================
  *
- *  Reads a PZEM-004T (100 A, Modbus-RTU) energy monitor every 2 seconds and
+ *  Reads a PZEM-004T (100 A, Modbus-RTU) energy monitor once a second and
  *  POSTs the readings as JSON to a small ingest server:
  *
  *      POST <server_url>/api/ingest
@@ -61,9 +61,15 @@ static const int PIN_PZEM_TX = 17;  // ESP32 TX2  -> PZEM RX
 // ----------------------------------------------------------------------------
 // Behaviour constants
 // ----------------------------------------------------------------------------
-static const uint32_t REPORT_INTERVAL_MS   = 2000;   // contract: post every 2 s
-static const uint32_t HTTP_TIMEOUT_MS      = 1500;   // per-request budget
-static const int      FAILS_BEFORE_WARNING = 2;      // 2+ fails -> slow blink
+static const uint32_t REPORT_INTERVAL_MS   = 1000;   // contract: post every 1 s
+// Connect and read timeouts apply back-to-back, so the worst case for a dead
+// server is 2 x this. Keep it under the report interval so an unreachable
+// server slows the cadence a little instead of derailing it.
+static const uint32_t HTTP_TIMEOUT_MS      = 700;    // per-request budget
+// Counted in failed POSTs, but what matters is the time it represents: 4 at the
+// 1 s cadence is ~4 s of trouble, the same as 2 was at the old 2 s cadence. Any
+// lower and the LED flickers on every transient blip.
+static const int      FAILS_BEFORE_WARNING = 4;      // 4+ fails -> slow blink
 static const uint32_t BUTTON_HOLD_MS       = 5000;   // hold time for reset
 static const uint32_t BUTTON_DEBOUNCE_MS   = 30;     // contact-bounce filter
 static const uint32_t WIFI_NUDGE_MS        = 15000;  // reconnect() retry pace
@@ -447,10 +453,11 @@ void setup() {
 
 // ----------------------------------------------------------------------------
 // loop() — fully non-blocking, millis()-based. No delay() in steady state.
-// While the server is healthy a POST returns in well under the 2 s interval;
-// worst case with a dead server is ~3 s (1.5 s connect timeout + 1.5 s read
-// timeout back-to-back), which briefly stretches the reporting cadence but
-// never blocks the button/WiFi/LED handling for longer than one cycle.
+// On a healthy LAN a POST returns in tens of milliseconds, well inside the 1 s
+// interval; worst case with a dead server is ~1.4 s (0.7 s connect timeout plus
+// 0.7 s read timeout back-to-back), which stretches the cadence slightly but
+// never blocks the button/WiFi/LED handling for longer than one cycle. Late
+// cycles are skipped rather than queued, so the pace self-corrects.
 // ----------------------------------------------------------------------------
 void loop() {
   uint32_t now = millis();
@@ -458,7 +465,7 @@ void loop() {
   handleButton(now);
   handleWifi(now);
 
-  // Report on a fixed 2-second cadence.
+  // Report on a fixed 1-second cadence.
   static uint32_t lastReportMs = 0;
   if (now - lastReportMs >= REPORT_INTERVAL_MS) {
     lastReportMs = now;

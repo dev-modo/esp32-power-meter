@@ -1,11 +1,11 @@
 # ESP32 Power Meter
 
-A complete home power-monitoring system: an **ESP32** reads a **PZEM-004T (100 A)** energy-meter module and pushes readings every 2 seconds to a small **Python (FastAPI) backend** running on your home server. A static **dashboard hosted on GitHub Pages** pulls the data from that backend and shows live values and history graphs for every metric.
+A complete home power-monitoring system: an **ESP32** reads a **PZEM-004T (100 A)** energy-meter module and pushes readings once a second to a small **Python (FastAPI) backend** running on your home server. A static **dashboard hosted on GitHub Pages** pulls the data from that backend and shows live values and history graphs for every metric.
 
 ```mermaid
 flowchart LR
     PZEM[PZEM-004T 100A] -- "Modbus-RTU (UART)" --> ESP[ESP32]
-    ESP -- "HTTP POST /api/ingest\nevery 2 s" --> API[FastAPI backend\nhome server :8000]
+    ESP -- "HTTP POST /api/ingest\nevery 1 s" --> API[FastAPI backend\nhome server :8000]
     API -- "SQLite" --> DB[(readings.db)]
     WEB[Dashboard\nGitHub Pages] -- "GET /api/latest\nGET /api/history\nGET /api/stats" --> API
 ```
@@ -72,7 +72,7 @@ The dashboard is published automatically from `docs/` via GitHub Pages. Open it,
 cd server && API_KEY=demo-key-12345 \
   DB_PATH=./data/powermeter.db uvicorn main:app --port 8000
 
-# Terminal 2 — seed 6 h of history, then stream live every 2 s
+# Terminal 2 — seed 6 h of history, then stream live every 1 s
 python3 tools/mock_esp32.py --backfill 6 --key demo-key-12345
 ```
 

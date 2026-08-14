@@ -1,7 +1,7 @@
 # ESP32 Power Meter — Firmware
 
 Firmware for an ESP32 devkit that reads a **PZEM-004T (100 A, Modbus-RTU)**
-energy monitor every **2 seconds** and POSTs the readings as JSON to the
+energy monitor every **second** and POSTs the readings as JSON to the
 project's ingest server (`POST <server_url>/api/ingest`). WiFi and server
 settings are configured through a captive pairing portal — no code edits or
 reflashing needed to change networks or servers.
@@ -38,7 +38,7 @@ resistor on the PZEM-TX line as cheap insurance.)
 | Fast blink (150 ms)      | Config/pairing portal is active                          |
 | Medium blink (500 ms)    | Connecting to WiFi                                       |
 | Solid ON                 | WiFi OK + server reachable                               |
-| Slow blink (1200 ms)     | WiFi OK, server unreachable (2+ consecutive failed POSTs)|
+| Slow blink (1200 ms)     | WiFi OK, server unreachable (4+ consecutive failed POSTs)|
 | 5 rapid flashes          | Factory reset triggered, then reboot into the portal     |
 
 ## Button
@@ -69,7 +69,7 @@ re-flashes.
 
 ## Reporting
 
-Every **2 seconds** the firmware reads voltage, current, power, cumulative
+Every **second** the firmware reads voltage, current, power, cumulative
 energy (kWh), frequency and power factor from the PZEM and POSTs them to
 `<server_url>/api/ingest` with the `X-API-Key` header (only when a key is
 set). Failed sensor reads are sent as JSON `null`. Example payload:

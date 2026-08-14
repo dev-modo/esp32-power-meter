@@ -7,12 +7,12 @@ Simulates a house: a standby base load plus appliances that switch on and off
 slightly under load, power factor follows the load mix, and energy accumulates
 as a cumulative kWh counter exactly like the real PZEM-004T does.
 
-It speaks the same contract as the firmware: POST /api/ingest every 2 seconds
+It speaks the same contract as the firmware: POST /api/ingest once a second
 with device_id, voltage, current, power, energy, frequency, pf, rssi, uptime_s.
 
 Usage
 -----
-    # Fill the last 6 hours with history, then stream live every 2 s
+    # Fill the last 6 hours with history, then stream live every 1 s
     python3 tools/mock_esp32.py --backfill 6
 
     # Just stream live against a remote server
@@ -141,7 +141,7 @@ def backfill(db_path, device_id, hours, interval, quiet=False):
 
     now = time.time()
     start = now - hours * 3600
-    # Backfill at a coarser cadence than live: 6 h at 2 s would be 10 800 rows
+    # Backfill at a coarser cadence than live: 6 h at 1 s would be 21 600 rows
     # of detail no chart can show. One row per `interval` seconds is plenty.
     house = House()
     rows, ts, uptime = [], start, 0
@@ -192,6 +192,7 @@ def live(url, key, device_id, interval, count, house, fail_rate, quiet=False):
     sent = failed = 0
 
     while count is None or sent < count:
+        cycle_start = time.time()
         r = house.step(interval)
 
         # Occasionally the PZEM read fails (loose wiring, bad CRC). The firmware
@@ -237,7 +238,10 @@ def live(url, key, device_id, interval, count, house, fail_rate, quiet=False):
             print("  ! three failures in a row -- is the server up and the key right?",
                   file=sys.stderr)
 
-        time.sleep(interval)
+        # Sleep only the remainder of the interval. At 1 s the HTTP round-trip
+        # is a real fraction of the budget, so sleeping the full interval would
+        # quietly drift the cadence slower than the firmware's.
+        time.sleep(max(0.0, interval - (time.time() - cycle_start)))
 
     return sent
 
@@ -249,7 +253,7 @@ def main():
                    help="backend base URL (default: %(default)s)")
     p.add_argument("--key", default="", help="X-API-Key, if the server requires one")
     p.add_argument("--device-id", default="powermeter-01")
-    p.add_argument("--interval", type=float, default=2.0,
+    p.add_argument("--interval", type=float, default=1.0,
                    help="seconds between readings (default: %(default)s, matches firmware)")
     p.add_argument("--count", type=int, default=None,
                    help="stop after N readings (default: run forever)")

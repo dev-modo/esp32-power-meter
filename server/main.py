@@ -1,8 +1,8 @@
 """
 ESP32 Power Meter -- API server.
 
-A small FastAPI app that sits between an ESP32 (which POSTs a reading every
-2 seconds) and a static dashboard hosted on GitHub Pages (which polls the
+A small FastAPI app that sits between an ESP32 (which POSTs a reading once a
+second) and a static dashboard hosted on GitHub Pages (which polls the
 GET endpoints). Data is stored in a single SQLite file -- no external
 database needed.
 
@@ -58,7 +58,9 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "90"))
 
 # A device is considered "online" if its newest reading is younger than this.
-# The ESP32 posts every 2 s, so 10 s means ~5 missed posts in a row.
+# The ESP32 posts every 1 s, so 10 s means ~10 missed posts in a row. Kept
+# deliberately loose so a brief WiFi or network hiccup doesn't flap the
+# dashboard's status pill; lower it if you want faster offline detection.
 ONLINE_THRESHOLD_S = 10.0
 
 log = logging.getLogger("powermeter")
@@ -188,7 +190,7 @@ class Reading(BaseModel):
 
 @app.post("/api/ingest")
 def ingest(reading: Reading, x_api_key: Optional[str] = Header(default=None)):
-    """ESP32 -> server. One reading, every ~2 seconds."""
+    """ESP32 -> server. One reading, every ~1 second."""
     # Auth is only enforced when API_KEY is configured on the server.
     if API_KEY is not None and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="invalid or missing API key")

@@ -8,7 +8,7 @@
      GET /api/stats?hours=24                  -> 24h energy / averages
 
    Polling model:
-     - /api/latest  every 2 s   (tiles, pills, live chart points)
+     - /api/latest  every 1 s   (tiles, pills, live chart points)
      - /api/history every 60 s  and whenever the range changes
      - /api/stats   every 60 s
    ========================================================================== */
@@ -23,7 +23,7 @@
 const DEFAULT_BASE_URL   = 'https://restoration-apr-spin-sessions.trycloudflare.com';
 
 const STORAGE_KEY        = 'powermeter.baseUrl';
-const LATEST_INTERVAL_MS = 2000;    // ESP32 posts every 2 s, so poll every 2 s
+const LATEST_INTERVAL_MS = 1000;    // ESP32 posts every 1 s, so poll every 1 s
 const SLOW_INTERVAL_MS   = 60000;   // history + stats refresh
 const FETCH_TIMEOUT_MS   = 6000;    // abort hung requests so polls don't pile up
 const MAX_POINTS         = 500;     // server-side downsampling cap
@@ -401,7 +401,7 @@ async function refreshHistory() {
 /**
  * Between 60 s history refreshes, keep short ranges feeling live by appending
  * the newest /api/latest sample. Only for ranges <= 1h — on long ranges one
- * raw point per 2 s would fight the server's downsampled buckets.
+ * raw point per second would fight the server's downsampled buckets.
  */
 function liveAppend(d) {
   if (rangeMinutes > LIVE_APPEND_MAX_MIN) return;

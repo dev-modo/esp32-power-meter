@@ -1,7 +1,7 @@
 # ESP32 Power Meter — API Server
 
 A small FastAPI + SQLite backend that sits between the ESP32 power meter
-(which pushes a reading every 2 seconds) and the dashboard hosted on
+(which pushes a reading once a second) and the dashboard hosted on
 GitHub Pages (which polls the read endpoints). No external database, no
 accounts — one Python file and one SQLite file.
 
@@ -153,8 +153,15 @@ monitors.
 
 ## Data & retention
 
-* One reading every 2 s ≈ 43 200 rows/day/device ≈ 4–5 MB/month in SQLite —
-  tiny, but not nothing, hence the retention job.
+* One reading every second ≈ **86 400 rows/day/device**. Measured on a real
+  database this table costs ~85 bytes/row including its indexes, so budget
+  roughly **7 MB/day, 220 MB/month, and 0.65 GB at the default 90-day
+  retention**. Fine on any home server, but plan the disk — this is the main
+  cost of the 1-second cadence, and it is why the retention job exists.
+* To cut that down, either raise `REPORT_INTERVAL_MS` in the firmware (2 s
+  halves everything) or lower `RETENTION_DAYS`. The charts read from the
+  downsampled `/api/history` endpoint, so a coarser cadence costs you nothing
+  visually beyond the very shortest time ranges.
 * An hourly background task deletes rows older than `RETENTION_DAYS`.
 * Back up the meter history by copying `./data/powermeter.db`
   (stop the container first, or use `sqlite3 powermeter.db ".backup ..."`).
