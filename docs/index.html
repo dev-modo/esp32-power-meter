@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Let the browser know we support both themes (form controls, scrollbars, etc.) -->
+  <meta name="color-scheme" content="light dark">
+  <title>ESP32 Power Meter</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Simple inline favicon so GitHub Pages doesn't 404 on /favicon.ico -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <!-- Soft ambient light spots (indigo + cyan). Decorative only, hidden from screen readers. -->
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <!-- ============================== HEADER ============================== -->
+  <header class="topbar glass">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" fill="currentColor"/>
+      </svg>
+      <div class="brand-text">
+        <h1>Power Meter</h1>
+        <!-- Subtle spot for device id + WiFi signal (filled in by app.js) -->
+        <span class="device-meta" id="deviceMeta">not connected</span>
+      </div>
+    </div>
+
+    <div class="status-group">
+      <!-- Device pill: Live / Offline (driven by /api/latest "online" flag) -->
+      <span class="pill" id="devicePill" data-state="unknown">
+        <span class="pill-dot" aria-hidden="true"></span><span class="pill-text">Device</span>
+      </span>
+      <!-- Server pill: Connected / Unreachable -->
+      <span class="pill" id="serverPill" data-state="unknown">
+        <span class="pill-dot" aria-hidden="true"></span><span class="pill-text">Server</span>
+      </span>
+      <span class="updated" id="updatedAgo">updated —</span>
+      <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5zm9.2 4.9.1-1.4-.1-1.4-2.1-.5a7.3 7.3 0 0 0-.6-1.4l1.2-1.9-2-2-1.9 1.2a7.3 7.3 0 0 0-1.4-.6l-.5-2.1L12 2.8l-1.4.1-.5 2.1c-.5.1-1 .3-1.4.6L6.8 4.4l-2 2 1.2 1.9c-.3.4-.5.9-.6 1.4l-2.1.5-.1 1.4.1 1.4 2.1.5c.1.5.3 1 .6 1.4l-1.2 1.9 2 2 1.9-1.2c.4.3.9.5 1.4.6l.5 2.1 1.4.1 1.4-.1.5-2.1c.5-.1 1-.3 1.4-.6l1.9 1.2 2-2-1.2-1.9c.3-.4.5-.9.6-1.4l2.1-.5z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Dismissible error banner (hidden until a request fails) -->
+  <div class="banner" id="errorBanner" role="alert" hidden>
+    <span class="banner-text" id="errorBannerText"></span>
+    <button class="banner-close" id="errorBannerClose" aria-label="Dismiss">&times;</button>
+  </div>
+
+  <main>
+    <!-- ============================ STAT TILES ============================ -->
+    <section class="tiles" aria-label="Current readings">
+      <!-- Hero tile: the number this dashboard leads with -->
+      <article class="card tile tile-hero">
+        <span class="tile-label">Power</span>
+        <span class="tile-value hero-value"><span id="valPower">—</span><span class="tile-unit">W</span></span>
+        <span class="tile-sub" id="heroSub">waiting for data…</span>
+      </article>
+
+      <article class="card tile">
+        <span class="tile-label">Voltage</span>
+        <span class="tile-value"><span id="valVoltage">—</span><span class="tile-unit">V</span></span>
+      </article>
+      <article class="card tile">
+        <span class="tile-label">Current</span>
+        <span class="tile-value"><span id="valCurrent">—</span><span class="tile-unit">A</span></span>
+      </article>
+      <article class="card tile">
+        <span class="tile-label">Frequency</span>
+        <span class="tile-value"><span id="valFrequency">—</span><span class="tile-unit">Hz</span></span>
+      </article>
+      <article class="card tile">
+        <span class="tile-label">Power factor</span>
+        <span class="tile-value"><span id="valPf">—</span></span>
+      </article>
+      <article class="card tile">
+        <span class="tile-label">Energy total</span>
+        <span class="tile-value"><span id="valEnergy">—</span><span class="tile-unit">kWh</span></span>
+      </article>
+      <!-- These two come from /api/stats?hours=24 -->
+      <article class="card tile">
+        <span class="tile-label">Energy today</span>
+        <span class="tile-value"><span id="valEnergyToday">—</span><span class="tile-unit">kWh</span></span>
+        <span class="tile-sub">last 24 h</span>
+      </article>
+      <article class="card tile">
+        <span class="tile-label">Avg power 24 h</span>
+        <span class="tile-value"><span id="valAvgPower">—</span><span class="tile-unit">W</span></span>
+      </article>
+    </section>
+
+    <!-- ========================= SHARED RANGE ROW ========================= -->
+    <!-- One filter row above the charts: every chart below follows this range. -->
+    <section class="controls">
+      <div class="range-select" role="group" aria-label="Chart time range" id="rangeSelect">
+        <button type="button" data-minutes="15">15m</button>
+        <button type="button" data-minutes="60" aria-pressed="true" class="active">1h</button>
+        <button type="button" data-minutes="360">6h</button>
+        <button type="button" data-minutes="1440">24h</button>
+        <button type="button" data-minutes="10080">7d</button>
+        <button type="button" data-minutes="43200">30d</button>
+      </div>
+    </section>
+
+    <!-- ============================== CHARTS ============================== -->
+    <section class="charts" id="chartsSection" aria-label="History charts">
+      <!-- Primary chart: Power, full width, area fill -->
+      <article class="card chart-card chart-hero">
+        <h2 class="chart-title"><span class="key key-indigo" aria-hidden="true"></span>Power <span class="chart-unit">W</span></h2>
+        <div class="chart-box chart-box-lg"><canvas id="chartPower"></canvas></div>
+      </article>
+
+      <article class="card chart-card">
+        <h2 class="chart-title"><span class="key key-cyan" aria-hidden="true"></span>Voltage <span class="chart-unit">V</span></h2>
+        <div class="chart-box"><canvas id="chartVoltage"></canvas></div>
+      </article>
+      <article class="card chart-card">
+        <h2 class="chart-title"><span class="key key-indigo" aria-hidden="true"></span>Current <span class="chart-unit">A</span></h2>
+        <div class="chart-box"><canvas id="chartCurrent"></canvas></div>
+      </article>
+      <article class="card chart-card">
+        <h2 class="chart-title"><span class="key key-cyan" aria-hidden="true"></span>Frequency <span class="chart-unit">Hz</span></h2>
+        <div class="chart-box"><canvas id="chartFrequency"></canvas></div>
+      </article>
+      <article class="card chart-card">
+        <h2 class="chart-title"><span class="key key-indigo" aria-hidden="true"></span>Power factor</h2>
+        <div class="chart-box"><canvas id="chartPf"></canvas></div>
+      </article>
+      <article class="card chart-card">
+        <h2 class="chart-title"><span class="key key-cyan" aria-hidden="true"></span>Energy <span class="chart-unit">kWh, cumulative</span></h2>
+        <div class="chart-box"><canvas id="chartEnergy"></canvas></div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <a href="https://github.com/dev-modo/esp32-power-meter" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true" class="gh-icon">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      dev-modo/esp32-power-meter
+    </a>
+    <span class="footer-note">open-source ESP32 + PZEM-004T energy monitor</span>
+  </footer>
+
+  <!-- =========================== SETTINGS PANEL =========================== -->
+  <div class="scrim" id="settingsScrim" hidden>
+    <div class="glass settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <h2 id="settingsTitle">Settings</h2>
+
+      <label class="field-label" for="baseUrlInput">Backend base URL</label>
+      <input type="url" id="baseUrlInput" placeholder="https://your-domain.duckdns.org"
+             autocomplete="off" spellcheck="false" inputmode="url">
+      <p class="hint">The FastAPI server this dashboard reads from (default port 8000).
+        Example: <code>http://192.168.1.8:8000</code> on your LAN, or an https reverse proxy for remote access.</p>
+
+      <!-- Shown only when this page is https but the entered URL is plain http -->
+      <p class="warn" id="mixedWarn" hidden>
+        <strong>Mixed content:</strong> this page is served over <code>https</code>, so browsers will
+        block requests to a plain <code>http://</code> backend. Put the server behind an https reverse
+        proxy (e.g. Nginx Proxy Manager or Caddy with a Let's Encrypt certificate) and use that URL here.
+      </p>
+
+      <div class="row">
+        <button type="button" class="btn" id="testBtn">Test connection</button>
+        <span class="test-result" id="testResult" role="status"></span>
+      </div>
+
+      <div class="row row-end">
+        <button type="button" class="btn" id="closeSettingsBtn">Close</button>
+        <button type="button" class="btn btn-primary" id="saveSettingsBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pinned CDN libraries (order matters: Chart.js, then Luxon, then the adapter) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

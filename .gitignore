@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets / local config
+.env
+
+# Server data (SQLite database lives outside git)
+server/data/
+
+# PlatformIO
+firmware/.pio/
+firmware/.vscode/
+
+# IDE
+.vscode/
+.idea/

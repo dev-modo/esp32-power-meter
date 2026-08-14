@@ -1,0 +1,18 @@
+services:
+  powermeter-api:
+    build: .
+    container_name: powermeter-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the SQLite database on the host, next to this file.
+      - ./data:/app/data
+    environment:
+      DB_PATH: /app/data/powermeter.db
+    # Optional overrides (API_KEY, CORS_ORIGINS, RETENTION_DAYS).
+    # Copy .env.example to .env and edit it; the stack still starts
+    # fine if .env does not exist (requires Docker Compose v2.24+).
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
