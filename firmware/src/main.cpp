@@ -13,9 +13,10 @@
  *
  *  Any PZEM value that could not be read is sent as JSON null.
  *
- *  Wiring (see README.md for the full table and the reasons):
- *      PZEM TX  -> GPIO4             LED    -> GPIO2 -> 220R -> LED -> GND
- *      PZEM RX  -> GPIO25            BUTTON -> GPIO13 to GND (INPUT_PULLUP)
+ *  Wiring (see README.md for the full table and the reasons).
+ *  NOTE THE CROSS-OVER on the data pair — TX goes to RX, not to TX:
+ *      PZEM "TX" -> GPIO4            LED    -> GPIO2 -> 220R -> LED -> GND
+ *      PZEM "RX" -> GPIO25           BUTTON -> GPIO13 to GND (INPUT_PULLUP)
  *      PZEM GND -> GND
  *      PZEM 5V  -> the ESP32's 3V3 pin, NOT 5V. That header pin only feeds the
  *                  optocoupler LEDs, and it sets the logic level of the PZEM's
@@ -66,8 +67,12 @@ static const int PIN_BUTTON  = 13;  // factory-reset button to GND, INPUT_PULLUP
 // module, and are Espressif's own UART2 defaults from arduino-esp32 3.x onward
 // (changed from 16/17 for exactly this reason). ESP32 UART routes through the
 // GPIO matrix, so any free pins work at 9600 baud.
-static const int PIN_PZEM_RX = 4;   // ESP32 receives  <- PZEM TX
-static const int PIN_PZEM_TX = 25;  // ESP32 transmits -> PZEM RX
+// Named from the ESP32's point of view, and deliberately not "PIN_PZEM_RX/TX":
+// that reads like "the PZEM's RX pin" and invites wiring TX to TX, which is the
+// single most common reason a PZEM never answers.
+//   THE DATA LINES CROSS. Wire each one to the OPPOSITE label on the PZEM:
+static const int PIN_UART_RX = 4;   // ESP32 receives here  <- wire to PZEM "TX"
+static const int PIN_UART_TX = 25;  // ESP32 transmits here -> wire to PZEM "RX"
 
 // ----------------------------------------------------------------------------
 // Behaviour constants
@@ -111,7 +116,9 @@ static const char *DEFAULT_DEVICE_ID = "powermeter-01";
 // The PZEM-004T "100 A" unit speaks the same Modbus-RTU protocol as the v3.0,
 // so this library drives it fine. The constructor starts Serial2 at 9600 baud
 // on the given pins.
-PZEM004Tv30 pzem(Serial2, PIN_PZEM_RX, PIN_PZEM_TX);
+// Library signature is (port, receivePin, transmitPin) — receive first, both
+// from the ESP32's side.
+PZEM004Tv30 pzem(Serial2, PIN_UART_RX, PIN_UART_TX);
 
 WiFiManager wm;
 Preferences prefs;

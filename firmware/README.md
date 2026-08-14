@@ -24,13 +24,32 @@ text rather than counting pins — clone boards have been seen rotated.
 | PZEM header | ESP32 | Notes |
 |---|---|---|
 | GND | GND | Mandatory. Without it the opto interface cannot work at all. |
-| TX | **GPIO4** | PZEM transmits → ESP32 receives |
-| RX | **GPIO25** | ESP32 transmits → PZEM receives |
+| **TX** | **GPIO4** | ⚠️ Note the cross-over — PZEM *TX* goes to the ESP32 pin that *receives* |
+| **RX** | **GPIO25** | ⚠️ PZEM *RX* goes to the ESP32 pin that *transmits* |
 | 5V | **3V3** ← *not* 5V | See the box below. This pin only feeds the optocoupler LEDs. |
 
-9600 baud, 8N1, Modbus-RTU. TX and RX **cross over**: each device's transmit
-goes to the other's receive. Wiring TX→TX is the usual reason a PZEM reads
-nothing — harmless, but you get `NAN` on every register.
+9600 baud, 8N1, Modbus-RTU.
+
+> [!IMPORTANT]
+> **The data pair crosses over. TX does not go to TX.**
+>
+> ```
+>   PZEM  TX ──────────────╮   ╭────────── GPIO4   (ESP32 receives)
+>                          ╰─╳─╯
+>   PZEM  RX ──────────────╯   ╰────────── GPIO25  (ESP32 transmits)
+> ```
+>
+> "TX" printed on a board always means *that board's* transmit pin, so the label
+> is relative to whichever board you are reading. TX is a mouth, RX is an ear —
+> each device's mouth has to point at the other's ear. Wiring TX→TX puts two
+> mouths together and leaves both ears listening to each other.
+>
+> **Getting it wrong causes no damage**, it just means silence: every register
+> reads `NAN` and the serial log prints `[pzem] no response`. Swap the two data
+> wires and it works. Leave GND and the 3V3 supply alone.
+
+Both data pins are named from the ESP32's side in the firmware — `PIN_UART_RX`
+is the pin the *ESP32* receives on, so it connects to the PZEM's **TX**.
 
 > [!WARNING]
 > **Feed that header's "5V" pin from 3.3 V, not 5 V.** An earlier version of
