@@ -9,7 +9,8 @@ A 3D-printable box with a screw-on lid for the power meter.
 | **Outside** | 150 × 100 × 32 mm |
 | **Inside** | 146 × 96 × 27 mm |
 | **Walls / floor / lid** | 2 mm / 2 mm / 3 mm |
-| **Fixings** | 8 × M3 self-tapping screws, 12 mm |
+| **Fixings** | 4 × M3 self-tapping screws, 12 mm (one per corner) |
+| **Openings** | none — the box prints sealed, drill entries to suit |
 | **Supports** | none, either part |
 
 > [!WARNING]
@@ -56,13 +57,24 @@ derives from it, and the file prints a warning if the cavity drops below 22 mm.
 
 ## Screws
 
-**8 × M3 self-tapping, 12 mm.** Corners plus the midpoint of every wall — four
-corner screws leave the lid unsupported across 146 mm and 96 mm spans, and it
-bows enough to open the seam. Eight halves both spans and cuts deflection to
-roughly 12%.
+**4 × M3 self-tapping, 12 mm** — one per corner.
+
+They do not thread into cylindrical posts. Each corner is filled solid with a
+**45° gusset** running 16 mm along both walls, so the screw material *is* the
+corner. It reads as part of the shell rather than a cylinder stuck onto it, and
+there is no thin post-to-wall junction to crack along. The lid's locating lip is
+cut back around each gusset so it never fouls them.
+
+One honest trade-off with corner-only fixing: the lid is unsupported across the
+full 146 mm and 96 mm spans, so a 3 mm lid bows roughly half a millimetre at the
+middle of each edge and the seam can show a hairline gap mid-span. It closes and
+sits flat enough to look right — it just is not clamped in the middle. If that
+bothers you, raise `lid_t` to 4, or uncomment the mid-wall positions in
+`screw_xy()` to go back to eight (they would need their own bosses, since the
+gussets only cover corners).
 
 The pilot holes are **2.7 mm**, not the textbook 2.5 mm for M3, because 2.5
-splits printed bosses on first assembly. Tune to your material:
+splits printed plastic on first assembly. Tune to your material:
 
 | Material | `screw_pilot_d` |
 |---|---|
@@ -71,9 +83,10 @@ splits printed bosses on first assembly. Tune to your material:
 | Nylon | 2.4 |
 
 Hand-tighten to roughly 0.2 Nm with a hex or Torx driver. A Phillips cams out
-and tempts you to lean on it; a power driver will strip the boss. If the box
+and tempts you to lean on it; a power driver will strip the thread. If the box
 will be opened often, use **M3 heat-set brass inserts** instead — set
-`screw_pilot_d` to the insert bore (typically 4.0) and `boss_d` to 9.
+`screw_pilot_d` to the insert bore (typically 4.0). The gussets have plenty of
+material for them without any other change.
 
 ## Printing
 
@@ -106,10 +119,17 @@ as it rises so it self-centres, which forgives a little wall bow.
 
 ## Cable entries
 
-Three holes at **12.5 mm** for **PG7 / M12×1.5 cable glands** — one in the left
-end, two in the right. They are that size deliberately: 3-core 1.5 mm² mains
-flex is 8.1 mm across, so it will not even pass an 8 mm hole, and 8 mm matches
-no gland thread made. **A bare printed hole is not strain relief.**
+**The box prints sealed — there are no openings.** Drill your own once the boards
+are positioned: with only 2 mm of wall a hand drill or a reamer cuts one in
+seconds, and you get to put it exactly where the cable actually lands instead of
+where a model guessed.
+
+If you would rather model them, `holes_x0` and `holes_x1` take
+`[y_position, diameter, z_centre]` and cut through the short ends. Two things to
+get right. **Size for a gland, not for the cable** — 3-core 1.5 mm² mains flex is
+8.1 mm across, so it would not even pass an 8 mm hole, and 8 mm matches no gland
+thread made. And **a bare printed hole is not strain relief**: a tug on the cable
+goes straight to the screw terminal.
 
 | Gland | Hole | Cable range |
 |---|---|---|
@@ -119,9 +139,10 @@ no gland thread made. **A bare printed hole is not strain relief.**
 | PG11 | 18.6 mm | 5–10 mm |
 | M20×1.5 | 20.2 mm | 6–12 mm |
 
-Hole heights are set individually (`holes_x0` / `holes_x1` take `[y, dia, z]`),
-so a USB opening can be aligned to the actual connector rather than drifting
-whenever `outer_z` changes.
+Heights are per hole rather than auto-centred, so a USB opening stays aligned to
+the actual connector instead of drifting whenever `outer_z` changes. Two helper
+values are defined for it: `mid_z` (vertical centre of the cavity) and `usb_z`
+(a micro-USB port on a board sitting on 8 mm standoffs).
 
 ## Mounting your boards
 

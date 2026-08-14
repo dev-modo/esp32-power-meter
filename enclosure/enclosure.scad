@@ -64,13 +64,16 @@ if (cav_z < CAV_Z_MIN)
 // to your insert's bore (typically 4.0) and boss_d to 9.
 screw_pilot_d = 2.7;
 screw_free_d  = 3.3;   // clearance hole through the lid
-boss_d        = 7;     // outside diameter of the screw posts
 screw_depth   = 12;    // depth of the pilot hole
+screw_inset   = 5;     // screw centre, in from both outer faces
 
-// Screw centres this far in from the outer faces. Chosen so each boss overlaps
-// its wall by 0.5 mm and fuses into one solid, rather than leaving a hairline
-// gap that prints as a weak seam.
-boss_inset    = wall + boss_d / 2 - 0.5;
+// The screws do NOT land in cylindrical posts. Each corner is filled solid with
+// a 45-degree gusset running gusset_l along both walls, so the screw material
+// IS the corner: it reads as part of the shell rather than a cylinder stuck
+// onto it, and there is no thin post-to-wall junction to crack along.
+// At 16 mm the screw is fully enclosed with ~2.9 mm of material out to the
+// diagonal face. Shorten it and the diagonal starts cutting into the hole.
+gusset_l      = 16;
 
 // Countersink the lid holes so the heads sit flush? Needs lid_t >= 3.5 to
 // leave material behind the head, so it is off at lid_t = 3. With it off, use
@@ -91,18 +94,23 @@ lip_clear     = 0.45;
 lip_taper     = 0.5;   // outer face narrows going up, so the lip self-centres
 
 // ---------------------------------------------------------- cable entries ---
-// Holes through the two short ends, as [y_position, diameter, z_centre].
-// Sized 12.5 mm for PG7 / M12x1.5 cable glands, NOT bare 8 mm holes: 3-core
-// 1.5 mm2 mains flex is 8.1 mm across, so it would not even pass an 8 mm hole,
-// and 8 mm matches no gland thread. A bare hole is not strain relief.
+// EMPTY: the box prints fully sealed. Drill your own entries once the boards are
+// positioned — with only 2 mm of wall a hand-held drill cleans a hole in
+// seconds, and you get to put it exactly where the cable actually lands.
+//
+// To model them instead, add entries as [y_position, diameter, z_centre].
+// Size them for a cable gland, not for the bare cable: 3-core 1.5 mm2 mains
+// flex is 8.1 mm across and a bare printed hole is not strain relief.
 //   PG7 / M12 = 12.5 mm   PG9 = 15.2   M16 = 16.2   PG11 = 18.6   M20 = 20.2
-// z is explicit per hole rather than auto-centred, so a USB opening can be
-// aligned to the actual connector height instead of drifting with outer_z.
-usb_z    = floor_t + 8 + 1.6 + 1.3;   // 8 mm standoff + PCB + half connector
+// z is explicit per hole rather than auto-centred, so a USB opening stays put
+// instead of drifting whenever outer_z changes.
+//   mid_z = vertical centre of the cavity
+//   usb_z = centre of a micro-USB port on a board sitting on 8 mm standoffs
 mid_z    = floor_t + cav_z / 2;
+usb_z    = floor_t + 8 + 1.6 + 1.3;
 
-holes_x0 = [[ 30, 12.5, mid_z ]];                  // left end:  low-voltage / DC in
-holes_x1 = [[ 30, 12.5, mid_z ], [ 65, 12.5, mid_z ]];  // right end: mains sense, CT lead
+holes_x0 = [];   // left end   e.g. [[ 30, 12.5, mid_z ]]
+holes_x1 = [];   // right end  e.g. [[ 30, 12.5, mid_z ], [ 65, 12.5, mid_z ]]
 
 // ------------------------------------------------- mains / SELV divider -----
 // A full-height barrier separating the PZEM's mains terminals from the ESP32,
@@ -151,22 +159,46 @@ tie_positions = [[ 40, 50 ], [ 110, 50 ]];
 $fn = 48;
 
 /* ==========================================================================
-   Screw positions — EIGHT, not four.
-   Corners, plus the mid-point of every wall. Four corner screws leave a 2-3 mm
-   lid unsupported across 146 mm and 96 mm spans; it bows and the seam gaps.
-   Eight halves both spans and cuts deflection to ~12%.
-   The mid-short-wall bosses at y = outer_y/2 are clear of the cable holes.
+   Screw positions — four, one per corner.
+
+   Worth knowing what this trades away: with corner-only fixing the lid is
+   unsupported across the full 146 mm and 96 mm spans, so a 3 mm lid bows
+   roughly half a millimetre at the centre of each edge and the seam can show a
+   hairline gap mid-span. It stays shut and it stays flat enough to look right;
+   it just is not clamped in the middle.
+
+   If that bothers you, either raise lid_t to 4, or uncomment the mid-wall
+   positions below to go back to eight screws — that halves both spans and cuts
+   deflection to about an eighth. Note the commented positions would need their
+   own bosses, since the corner gussets only cover the corners.
    ======================================================================== */
 function screw_xy() = [
-  [ boss_inset,           boss_inset           ],
-  [ outer_x - boss_inset, boss_inset           ],
-  [ boss_inset,           outer_y - boss_inset ],
-  [ outer_x - boss_inset, outer_y - boss_inset ],
-  [ outer_x / 2,          boss_inset           ],
-  [ outer_x / 2,          outer_y - boss_inset ],
-  [ boss_inset,           outer_y / 2          ],
-  [ outer_x - boss_inset, outer_y / 2          ],
+  [ screw_inset,           screw_inset           ],
+  [ outer_x - screw_inset, screw_inset           ],
+  [ screw_inset,           outer_y - screw_inset ],
+  [ outer_x - screw_inset, outer_y - screw_inset ],
+  // [ outer_x / 2,          screw_inset           ],
+  // [ outer_x / 2,          outer_y - screw_inset ],
+  // [ screw_inset,          outer_y / 2          ],
+  // [ outer_x - screw_inset, outer_y / 2          ],
 ];
+
+// The four corners, as [outer_x, outer_y, x_direction, y_direction], so one
+// triangle definition serves all of them.
+function gusset_corners() = [
+  [ 0,       0,       1, 1 ],
+  [ outer_x, 0,      -1, 1 ],
+  [ 0,       outer_y, 1, -1 ],
+  [ outer_x, outer_y, -1, -1 ],
+];
+
+// 2D footprint of one corner gusset: a right triangle with its square corner on
+// the box corner. `grow` offsets it outward, for clearance cuts.
+module gusset_2d(g, grow = 0) {
+  translate([ g[0], g[1] ])
+    offset(r = grow)
+      polygon([ [ 0, 0 ], [ g[2] * gusset_l, 0 ], [ 0, g[3] * gusset_l ] ]);
+}
 
 /* ------------------------------------------------------------------ box --- */
 module box() {
@@ -178,10 +210,12 @@ module box() {
         translate([ wall, wall, floor_t ])
           cube([ cav_x, cav_y, cav_z + 1 ]);   // +1: the top is fully open
       }
-      // Screw bosses, floor to rim.
-      for (p = screw_xy())
-        translate([ p[0], p[1], floor_t ])
-          cylinder(d = boss_d, h = cav_z);
+      // Corner gussets: solid 45-degree fillets from floor to rim, continuous
+      // with the walls. These replace the old free-standing cylinders.
+      for (g = gusset_corners())
+        translate([ 0, 0, floor_t ])
+          linear_extrude(cav_z)
+            gusset_2d(g);
       // Optional mains/SELV barrier, full height so the lid closes onto it.
       if (divider)
         translate([ divider_x - divider_t / 2, wall, floor_t ])
@@ -280,12 +314,13 @@ module lip() {
     // Hollow it out.
     translate([ ox + lip_w, oy_() + lip_w, -0.1 ])
       cube([ lx - 2 * lip_w, ly - 2 * lip_w, lip_h + 0.2 ]);
-    // Clear every boss. Radius is boss_d/2 + 1, not + lip_clear: at the tight
-    // clearance the cut left 0.028 mm slivers of geometry in the lip corners,
-    // which are degenerate and can crash a slicer. +1 mm removes them cleanly.
-    for (p = screw_xy())
-      translate([ p[0], p[1], -0.1 ])
-        cylinder(d = boss_d + 2, h = lip_h + 0.2);
+    // Clear the corner gussets, grown 1 mm so the lip never touches them. A
+    // tighter cut left sub-0.03 mm degenerate slivers in the lip corners, which
+    // are the kind of geometry that makes a slicer fall over.
+    for (g = gusset_corners())
+      translate([ 0, 0, -0.1 ])
+        linear_extrude(lip_h + 0.2)
+          gusset_2d(g, 1);
   }
 }
 function oy_() = wall + lip_clear;
