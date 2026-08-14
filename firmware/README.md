@@ -67,6 +67,26 @@ WiFi network again.
 Settings live in NVS namespace `powermeter`, so they survive reboots and
 re-flashes.
 
+## Reconnecting — it never gives up
+
+Once a network has been saved, the firmware **retries it forever and will not
+put itself back into pairing mode on its own.** This is deliberate: after a
+power cut the router routinely takes a minute or two longer to boot than the
+ESP32, and a meter that parks itself in a pairing portal until someone walks
+over to it is useless.
+
+| Situation | What happens |
+|---|---|
+| Saved network not up yet at boot | Retries every ~25 s **indefinitely**, LED medium-blinking. Never opens the portal. |
+| WiFi drops while running | `setAutoReconnect` plus a `WiFi.reconnect()` nudge every 15 s, forever. |
+| Router gone for a week | Keeps retrying; reconnects on its own when it returns. |
+| Server down but WiFi fine | Keeps posting; LED slow-blinks. Recovers on the first success. |
+| No credentials saved (first boot / after reset) | Opens the portal and leaves it open with **no timeout** — there is nothing to retry. |
+
+The only way into pairing mode is to ask for it: **hold the button 5 seconds.**
+The button stays responsive even while the device is stuck retrying at boot, so
+you never need to power-cycle to get the portal back.
+
 ## Reporting
 
 Every **second** the firmware reads voltage, current, power, cumulative

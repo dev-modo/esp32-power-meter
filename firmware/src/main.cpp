@@ -73,10 +73,11 @@ static const int      FAILS_BEFORE_WARNING = 4;      // 4+ fails -> slow blink
 static const uint32_t BUTTON_HOLD_MS       = 5000;   // hold time for reset
 static const uint32_t BUTTON_DEBOUNCE_MS   = 30;     // contact-bounce filter
 static const uint32_t WIFI_NUDGE_MS        = 15000;  // reconnect() retry pace
-static const uint32_t PORTAL_TIMEOUT_S     = 300;    // portal auto-close; the
-                                                     // device reboots + retries
-                                                     // so a router outage can't
-                                                     // strand it in the portal
+static const uint32_t WIFI_CONNECT_TIMEOUT_S = 20;   // per connect attempt
+static const uint32_t WIFI_BOOT_RETRY_MS   = 5000;   // pause between boot
+                                                     // connect attempts; we
+                                                     // retry saved credentials
+                                                     // forever, never giving up
 
 // LED blink half-periods (ms) from the status-code table
 static const uint32_t BLINK_PORTAL_MS     = 150;
@@ -423,22 +424,48 @@ void setup() {
   wm.setAPCallback(onPortalOpened);        // LED -> fast blink when portal opens
   wm.setSaveConfigCallback(onPortalSave);  // fires on "Save" from the WiFi page
   wm.setSaveParamsCallback(onPortalSave);  // fires on "Save" from the params page
-  wm.setConfigPortalTimeout(PORTAL_TIMEOUT_S);
-  wm.setConnectTimeout(20);                // seconds per connection attempt
+  wm.setConnectTimeout(WIFI_CONNECT_TIMEOUT_S);
 
-  // Connect. autoConnect() blocks: it tries the stored credentials first and
-  // opens the "PowerMeter-Setup" portal if that fails (or on first boot).
-  // The Ticker keeps the LED blinking correctly the whole time.
+  // WiFi.mode() also initialises the WiFi driver, which getWiFiIsSaved() needs
+  // before it can read the stored SSID out of NVS.
   WiFi.mode(WIFI_STA);
   setLedMode(LED_BLINK_CONNECTING);
-  Serial.println("[wifi] connecting (portal opens automatically if needed)...");
 
-  if (!wm.autoConnect(AP_NAME)) {
-    // Portal timed out with nothing configured/reachable. Reboot and retry —
-    // this way a temporary router outage can't strand us in portal mode.
-    Serial.println("[wifi] portal timed out without a connection — rebooting to retry");
-    delay(1000);
-    ESP.restart();
+  if (wm.getWiFiIsSaved()) {
+    // We already have credentials, so a failure here does NOT mean the device
+    // needs pairing — it means the network isn't there yet. Retry forever and
+    // never open the portal on our own: after a power cut the router routinely
+    // takes a minute or two longer to boot than the ESP32, and a meter that
+    // parks itself in pairing mode until someone walks over is useless.
+    // Hold the button for 5 s at any time to force pairing deliberately.
+    wm.setEnableConfigPortal(false);   // autoConnect() now just returns false
+    Serial.printf("[wifi] connecting to saved network \"%s\" — will retry until it answers\n",
+                  wm.getWiFiSSID().c_str());
+
+    for (uint32_t attempt = 1; !wm.autoConnect(AP_NAME); attempt++) {
+      Serial.printf("[wifi] attempt %lu failed (router down or out of range?) — retrying in %lu s\n",
+                    (unsigned long)attempt,
+                    (unsigned long)(WIFI_BOOT_RETRY_MS / 1000));
+      // Keep servicing the button while we wait, so the user can always force
+      // pairing mode without having to power-cycle the board.
+      uint32_t until = millis() + WIFI_BOOT_RETRY_MS;
+      while ((int32_t)(millis() - until) < 0) {
+        handleButton(millis());
+        delay(10);
+      }
+    }
+  } else {
+    // Nothing saved: first boot, or straight after a factory reset. There is
+    // nothing to retry, so open the portal and leave it open with no timeout —
+    // rebooting out of a portal nobody has configured yet achieves nothing,
+    // and WiFiManager already suspends the timeout while a client is connected.
+    Serial.println("[wifi] no saved credentials — opening the pairing portal");
+    wm.setConfigPortalTimeout(0);
+    if (!wm.autoConnect(AP_NAME)) {
+      Serial.println("[wifi] pairing portal exited without a connection — rebooting");
+      delay(1000);
+      ESP.restart();
+    }
   }
 
   WiFi.setAutoReconnect(true);
