@@ -74,10 +74,15 @@ static const uint32_t BUTTON_HOLD_MS       = 5000;   // hold time for reset
 static const uint32_t BUTTON_DEBOUNCE_MS   = 30;     // contact-bounce filter
 static const uint32_t WIFI_NUDGE_MS        = 15000;  // reconnect() retry pace
 static const uint32_t WIFI_CONNECT_TIMEOUT_S = 20;   // per connect attempt
-static const uint32_t WIFI_BOOT_RETRY_MS   = 5000;   // pause between boot
+static const uint32_t WIFI_BOOT_RETRY_MS   = 3000;   // pause between boot
                                                      // connect attempts; we
                                                      // retry saved credentials
                                                      // forever, never giving up
+static const uint32_t BUTTON_POLL_MS       = 10;     // button sampling period
+// If handleButton() has not run for longer than this, something blocked and we
+// cannot trust the press state we last saw — see the resync there. Must stay
+// comfortably below BUTTON_HOLD_MS.
+static const uint32_t BUTTON_STARVE_MS     = 250;
 
 // LED blink half-periods (ms) from the status-code table
 static const uint32_t BLINK_PORTAL_MS     = 150;
@@ -194,6 +199,19 @@ static void onPortalSave() {
   while (gServerUrl.endsWith("/")) gServerUrl.remove(gServerUrl.length() - 1);
   if (gDeviceId.isEmpty()) gDeviceId = DEFAULT_DEVICE_ID;
 
+  // A blank server URL is never meaningful, and there is no way to set it again
+  // at runtime once saved — so treat an empty box as "leave it alone" rather
+  // than wiping a working URL. (An empty API key IS meaningful: it means the
+  // server has no key configured, so that one stays overwritable.)
+  if (gServerUrl.isEmpty()) {
+    prefs.begin(NVS_NAMESPACE, /*readOnly=*/true);
+    gServerUrl = prefs.getString("server_url", "");
+    prefs.end();
+    if (!gServerUrl.isEmpty()) {
+      Serial.println("[cfg] server URL submitted blank — keeping the saved one");
+    }
+  }
+
   prefs.begin(NVS_NAMESPACE, /*readOnly=*/false);
   prefs.putString("server_url", gServerUrl);
   prefs.putString("api_key", gApiKey);
@@ -233,14 +251,34 @@ static void factoryReset() {
   ESP.restart();
 }
 
-// Debounced hold-timer for the button. Called every loop() pass.
+// Debounced hold-timer for the button. Must be called frequently (every few
+// ms). It is deliberately defensive about being called late: a hold is only
+// ever honoured from samples this function actually took, never inferred from
+// wall-clock time across a gap in which the pin was not read.
 static void handleButton(uint32_t now) {
   static bool     debounced   = false;  // true = button held down
   static bool     lastRaw     = false;
   static uint32_t lastEdgeMs  = 0;
   static uint32_t pressStart  = 0;
+  static uint32_t lastCallMs  = 0;
+  static bool     everCalled  = false;
 
   bool raw = (digitalRead(PIN_BUTTON) == LOW);  // active-low (pull-up)
+
+  // If we were starved (a blocking call ran between samples), we cannot know
+  // what the button did in the meantime. Re-baseline instead of trusting a
+  // pressStart from before the gap — otherwise a brief tap during the gap would
+  // look like a completed multi-second hold and wipe the WiFi credentials.
+  if (everCalled && (now - lastCallMs) > BUTTON_STARVE_MS) {
+    Serial.printf("[btn] resynchronising after a %lu ms gap in sampling\n",
+                  (unsigned long)(now - lastCallMs));
+    debounced  = false;
+    lastRaw    = raw;
+    lastEdgeMs = now;
+    pressStart = now;
+  }
+  lastCallMs = now;
+  everCalled = true;
 
   if (raw != lastRaw) {          // raw signal changed -> restart debounce timer
     lastRaw = raw;
@@ -258,9 +296,42 @@ static void handleButton(uint32_t now) {
     }
   }
 
-  if (debounced && (now - pressStart) >= BUTTON_HOLD_MS) {
+  // `raw` must still be down: never fire on a button the user already let go of.
+  if (debounced && raw && (now - pressStart) >= BUTTON_HOLD_MS) {
     factoryReset();  // does not return
   }
+}
+
+// Human-readable WiFi status, so the serial log distinguishes "router isn't
+// there" from "the password is wrong" — only the latter needs the user to act.
+static const char *wifiStatusName(wl_status_t s) {
+  switch (s) {
+    case WL_NO_SHIELD:       return "no wifi hardware";
+    case WL_IDLE_STATUS:     return "idle";
+    case WL_NO_SSID_AVAIL:   return "network not found (router down or out of range)";
+    case WL_SCAN_COMPLETED:  return "scan completed";
+    case WL_CONNECTED:       return "connected";
+    case WL_CONNECT_FAILED:  return "connect failed (wrong password?)";
+    case WL_CONNECTION_LOST: return "connection lost";
+    case WL_DISCONNECTED:    return "disconnected";
+    default:                 return "unknown";
+  }
+}
+
+/**
+ * Wait up to timeoutMs for WiFi to come up, sampling the button throughout.
+ * Returns true if connected. This exists so nothing in the boot path ever
+ * blocks without reading the button: the 5 s hold has to work even — especially
+ * — while the device is stuck retrying an unreachable network.
+ */
+static bool waitForWifi(uint32_t timeoutMs) {
+  uint32_t start = millis();
+  while ((millis() - start) < timeoutMs) {     // unsigned math: rollover-safe
+    if (WiFi.status() == WL_CONNECTED) return true;
+    handleButton(millis());                    // may factory-reset and reboot
+    delay(BUTTON_POLL_MS);
+  }
+  return WiFi.status() == WL_CONNECTED;
 }
 
 // ----------------------------------------------------------------------------
@@ -438,27 +509,37 @@ void setup() {
     // takes a minute or two longer to boot than the ESP32, and a meter that
     // parks itself in pairing mode until someone walks over is useless.
     // Hold the button for 5 s at any time to force pairing deliberately.
-    wm.setEnableConfigPortal(false);   // autoConnect() now just returns false
-    Serial.printf("[wifi] connecting to saved network \"%s\" — will retry until it answers\n",
-                  wm.getWiFiSSID().c_str());
+    wm.setEnableConfigPortal(false);   // belt and braces: never auto-open it
 
-    for (uint32_t attempt = 1; !wm.autoConnect(AP_NAME); attempt++) {
-      Serial.printf("[wifi] attempt %lu failed (router down or out of range?) — retrying in %lu s\n",
-                    (unsigned long)attempt,
+    // Deliberately NOT wm.autoConnect() here. That blocks for the full connect
+    // timeout (~20 s with an absent router) without ever sampling the button,
+    // which made the documented "hold 5 s to re-pair" escape hatch unusable
+    // exactly when it is needed. We drive the connect ourselves so the button
+    // is polled every 10 ms for the entire retry cycle, however long it lasts.
+    // A 32-char SSID is stored without a NUL terminator, so bound the log.
+    String ssid = wm.getWiFiSSID();
+    if (ssid.length() > 32) ssid.remove(32);
+    Serial.printf("[wifi] connecting to saved network \"%s\" — will retry until it answers\n",
+                  ssid.c_str());
+
+    for (uint32_t attempt = 1; ; attempt++) {
+      WiFi.begin();                    // reuses the credentials stored in NVS
+      if (waitForWifi(WIFI_CONNECT_TIMEOUT_S * 1000UL)) break;
+
+      // Report what actually went wrong: a changed router password looks
+      // nothing like an absent router, and only one of them is user-fixable.
+      Serial.printf("[wifi] attempt %lu failed: %s — retrying in %lu s"
+                    " (hold the button 5 s to re-pair)\n",
+                    (unsigned long)attempt, wifiStatusName(WiFi.status()),
                     (unsigned long)(WIFI_BOOT_RETRY_MS / 1000));
-      // Keep servicing the button while we wait, so the user can always force
-      // pairing mode without having to power-cycle the board.
-      uint32_t until = millis() + WIFI_BOOT_RETRY_MS;
-      while ((int32_t)(millis() - until) < 0) {
-        handleButton(millis());
-        delay(10);
-      }
+      // Explicit args: never erase the stored AP, we want to retry it forever.
+      WiFi.disconnect(/*wifioff=*/false, /*eraseap=*/false);
+      waitForWifi(WIFI_BOOT_RETRY_MS); // same polled wait; keeps the button live
     }
   } else {
     // Nothing saved: first boot, or straight after a factory reset. There is
     // nothing to retry, so open the portal and leave it open with no timeout —
-    // rebooting out of a portal nobody has configured yet achieves nothing,
-    // and WiFiManager already suspends the timeout while a client is connected.
+    // rebooting out of a portal nobody has configured yet achieves nothing.
     Serial.println("[wifi] no saved credentials — opening the pairing portal");
     wm.setConfigPortalTimeout(0);
     if (!wm.autoConnect(AP_NAME)) {

@@ -77,15 +77,31 @@ over to it is useless.
 
 | Situation | What happens |
 |---|---|
-| Saved network not up yet at boot | Retries every ~25 s **indefinitely**, LED medium-blinking. Never opens the portal. |
+| Saved network not up yet at boot | Retries every ~23 s **indefinitely**, LED medium-blinking. Never opens the portal. |
 | WiFi drops while running | `setAutoReconnect` plus a `WiFi.reconnect()` nudge every 15 s, forever. |
 | Router gone for a week | Keeps retrying; reconnects on its own when it returns. |
-| Server down but WiFi fine | Keeps posting; LED slow-blinks. Recovers on the first success. |
+| Saved password no longer correct | Also retries forever — the serial log says `connect failed (wrong password?)` rather than "network not found", so the one user-fixable case is distinguishable. Hold the button to re-pair. |
+| Server down but WiFi fine | Keeps posting; LED slow-blinks after 4 failures. Recovers on the first success. |
 | No credentials saved (first boot / after reset) | Opens the portal and leaves it open with **no timeout** — there is nothing to retry. |
 
 The only way into pairing mode is to ask for it: **hold the button 5 seconds.**
-The button stays responsive even while the device is stuck retrying at boot, so
+That works at any time, including while the device is stuck retrying at boot, so
 you never need to power-cycle to get the portal back.
+
+Making that guarantee real took some care, and it is the reason the retry loop
+calls `WiFi.begin()` directly instead of `wm.autoConnect()`. `autoConnect()`
+blocks for the whole connect timeout (~20 s against an absent router) without
+reading the button, which left the escape hatch unusable precisely when it was
+needed — and worse, a brief tap during that blind window could be mistaken for a
+finished hold and wipe the credentials. The connect is now driven by a polled
+loop that samples the button every 10 ms, and `handleButton()` additionally
+refuses to act on a hold it did not observe continuously. Both directions are
+covered by [`test/test_button_logic.py`](test/test_button_logic.py), which runs
+on a laptop with no hardware:
+
+```bash
+python3 firmware/test/test_button_logic.py    # 12 passed, 0 failed
+```
 
 ## Reporting
 
