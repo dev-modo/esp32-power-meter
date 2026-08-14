@@ -240,11 +240,31 @@ main {
 .banner-close:hover { color: var(--text-primary); }
 
 /* -------------------------------- stat tiles ------------------------------ */
+/* Mobile first: one column. The wider layouts use explicit column counts
+   rather than auto-fit, because the hero spans two cells — with auto-fit the
+   total (hero + 8 tiles) rarely divides evenly and the last row is left
+   half empty. Every breakpoint below divides exactly. */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-bottom: 18px;
+}
+
+/* 2 columns: the hero takes a full row, the other 8 pair off into 4 rows. */
+@media (min-width: 480px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 3 columns: the hero narrows to one cell so all 9 tiles fill 3 rows. */
+@media (min-width: 760px) {
+  .tiles { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* 5 columns: the hero spans 2 again — 10 cells, exactly two full rows.
+   Equal row heights here because the whole block reads as one slab. */
+@media (min-width: 1040px) {
+  .tiles { grid-template-columns: repeat(5, 1fr); grid-auto-rows: 1fr; }
 }
 
 .tile {
@@ -262,7 +282,8 @@ main {
 }
 
 .tile-value {
-  font-size: 26px;
+  /* Shrinks a little at 5 columns so "684.129 kWh" stays on one line. */
+  font-size: clamp(21px, 1.9vw, 26px);
   font-weight: 600;
   line-height: 1.15;
   color: var(--text-primary);
@@ -279,16 +300,26 @@ main {
 
 /* Hero tile — the one number the dashboard leads with */
 .tile-hero {
-  grid-column: span 2;
   justify-content: center;
   border-color: color-mix(in srgb, var(--indigo) 35%, var(--border));
 }
-.hero-value { font-size: 52px; font-weight: 650; letter-spacing: -0.02em; }
-.hero-value .tile-unit { font-size: 20px; }
 
-@media (max-width: 420px) {
-  .tile-hero { grid-column: 1 / -1; }
+/* Span 2 cells only at the widths where that still divides the grid evenly:
+   at 2 columns (a full-width row) and at 5. At 3 it stays a single cell. */
+@media (min-width: 480px) and (max-width: 759px) {
+  .tile-hero { grid-column: span 2; }
 }
+@media (min-width: 1040px) {
+  .tile-hero { grid-column: span 2; }
+}
+
+.hero-value {
+  /* Fluid, so six digits still fit when the hero is only one column wide. */
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.hero-value .tile-unit { font-size: 20px; }
 
 /* ---------------------------- range selector row --------------------------- */
 .controls {
@@ -502,7 +533,6 @@ main {
 @media (max-width: 640px) {
   .topbar { position: static; margin-top: 10px; }
   .updated { min-width: 0; }
-  .hero-value { font-size: 40px; }
 }
 
 /* ------------------------------ reduced motion ---------------------------- */

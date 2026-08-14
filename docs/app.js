@@ -197,10 +197,11 @@ function renderLatest(d) {
 }
 
 function renderStats(s) {
-  setText('valEnergyToday', s.energy_kwh === null || s.energy_kwh === undefined
-    ? EM_DASH : s.energy_kwh.toFixed(3));
-  setText('valAvgPower',    s.avg_power  === null || s.avg_power  === undefined
-    ? EM_DASH : s.avg_power.toFixed(1));
+  // Every stat field is null until the window holds at least one reading.
+  const stat = (v, digits) => (v === null || v === undefined) ? EM_DASH : v.toFixed(digits);
+  setText('valEnergyToday', stat(s.energy_kwh, 3));
+  setText('valAvgPower',    stat(s.avg_power,  1));
+  setText('valPeakPower',   stat(s.max_power,  1));
 }
 
 function renderNoData() {
