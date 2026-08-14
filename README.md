@@ -63,6 +63,38 @@ Flash `firmware/` with PlatformIO or the Arduino IDE, then power up. The ESP32 o
 
 The dashboard is published automatically from `docs/` via GitHub Pages. Open it, tap the gear icon, and enter your backend URL. Settings are stored locally in your browser.
 
+## Try it without hardware
+
+[`tools/mock_esp32.py`](tools/mock_esp32.py) simulates the whole device — a house with a fridge cycling, a kettle spiking, lights and AC switching on and off — and posts the exact same payload the firmware does. Stdlib only, no dependencies.
+
+```bash
+# Terminal 1 — the backend
+cd server && API_KEY=demo-key-12345 \
+  DB_PATH=./data/powermeter.db uvicorn main:app --port 8000
+
+# Terminal 2 — seed 6 h of history, then stream live every 2 s
+python3 tools/mock_esp32.py --backfill 6 --key demo-key-12345
+```
+
+Open `docs/index.html` (or the hosted dashboard) and point it at `http://localhost:8000`. About 1% of readings are sent as nulls on purpose, simulating a failed PZEM read, so the chart gap handling gets exercised too.
+
+## Exposing a local backend
+
+GitHub Pages is HTTPS, so the dashboard can only reach an HTTPS backend. To demo from a laptop, tunnel it:
+
+```bash
+# ngrok — needs a free account authtoken, one time
+ngrok config add-authtoken YOUR_TOKEN
+ngrok http 8000
+
+# or Cloudflare quick tunnel — no account needed
+cloudflared tunnel --url http://localhost:8000
+```
+
+Paste the resulting HTTPS URL into the dashboard's settings panel, or set `DEFAULT_BASE_URL` at the top of [`docs/app.js`](docs/app.js) to bake it in.
+
+> Both of the above hand out a **random URL that changes on every restart**. For something permanent, use an ngrok static domain (one is included free), or a named Cloudflare tunnel on a domain you own. For a real always-on install, the intended setup is the backend on your home server behind a reverse proxy with a Let's Encrypt certificate — see [`server/README.md`](server/README.md).
+
 ## API overview
 
 | Endpoint | Purpose |

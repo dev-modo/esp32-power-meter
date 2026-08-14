@@ -16,6 +16,12 @@
 
 /* ------------------------------ configuration ----------------------------- */
 
+/* Backend this dashboard talks to when the browser has nothing saved yet.
+   Change this one line to repoint the published dashboard; whatever you save
+   in the settings panel overrides it for your browser only. Leave it as ''
+   to force the settings panel open on a first visit instead. */
+const DEFAULT_BASE_URL   = 'https://restoration-apr-spin-sessions.trycloudflare.com';
+
 const STORAGE_KEY        = 'powermeter.baseUrl';
 const LATEST_INTERVAL_MS = 2000;    // ESP32 posts every 2 s, so poll every 2 s
 const SLOW_INTERVAL_MS   = 60000;   // history + stats refresh
@@ -47,7 +53,9 @@ const CHART_DEFS = [
 
 /* ---------------------------------- state --------------------------------- */
 
-let baseUrl        = normalizeBaseUrl(localStorage.getItem(STORAGE_KEY) || '');
+/* ?? not || : a saved empty string is an explicit "unset it", and must not
+   silently fall back to the default. */
+let baseUrl        = normalizeBaseUrl(localStorage.getItem(STORAGE_KEY) ?? DEFAULT_BASE_URL);
 let rangeMinutes   = 60;            // default range: 1h
 let charts         = {};            // field -> Chart instance
 let latestTimer    = null;
@@ -76,6 +84,14 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+/* Free ngrok tunnels answer browser requests with an HTML interstitial instead
+   of the API response; this header opts out of it. Harmless on every other
+   backend, which simply ignores an unknown request header. */
+const FETCH_OPTS = {
+  cache: 'no-store',
+  headers: { 'ngrok-skip-browser-warning': 'true' },
+};
+
 /**
  * GET a JSON endpoint with a timeout.
  * Resolves { status, body } for ANY http response (404 still means the
@@ -85,7 +101,7 @@ async function getJson(path) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res  = await fetch(baseUrl + path, { cache: 'no-store', signal: controller.signal });
+    const res  = await fetch(baseUrl + path, { ...FETCH_OPTS, signal: controller.signal });
     const body = await res.json().catch(() => null);
     return { status: res.status, body };
   } finally {
@@ -498,6 +514,15 @@ document.getElementById('saveSettingsBtn').addEventListener('click', () => {
   startPolling();                                  // apply immediately
 });
 
+/* Restore the URL baked into DEFAULT_BASE_URL (does not save until you hit Save). */
+document.getElementById('resetUrlBtn').addEventListener('click', () => {
+  urlInput.value = DEFAULT_BASE_URL;
+  updateMixedWarning();
+  testResult.textContent = '';
+  testResult.className = 'test-result';
+  urlInput.focus();
+});
+
 /* "Test connection" pings /api/health with whatever is typed right now. */
 document.getElementById('testBtn').addEventListener('click', async () => {
   const url = normalizeBaseUrl(urlInput.value);
@@ -508,7 +533,7 @@ document.getElementById('testBtn').addEventListener('click', async () => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res  = await fetch(url + '/api/health', { cache: 'no-store', signal: controller.signal });
+    const res  = await fetch(url + '/api/health', { ...FETCH_OPTS, signal: controller.signal });
     const body = await res.json().catch(() => null);
     if (res.ok && body && body.status === 'ok') {
       testResult.textContent = '✓ Connected — server is healthy';
@@ -533,9 +558,11 @@ document.getElementById('testBtn').addEventListener('click', async () => {
 for (const def of CHART_DEFS) charts[def.field] = makeChart(def);
 
 if (baseUrl) {
+  // Normal path: DEFAULT_BASE_URL or a saved override. Start straight away —
+  // no settings popup on load, the gear button is there when you need it.
   startPolling();
 } else {
-  // First visit: no backend configured yet — open settings automatically.
+  // Only reachable with DEFAULT_BASE_URL empty, or after clearing the field.
   setPill('serverPill', 'idle', 'Not configured');
   setPill('devicePill', 'idle', 'Device');
   openSettings();

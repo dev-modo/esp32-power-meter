@@ -469,6 +469,9 @@ main {
 
 .row { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .row-end { justify-content: flex-end; }
+/* A secondary action that sits opposite the primary buttons in the same row. */
+.btn-quiet { margin-right: auto; opacity: 0.75; }
+.btn-quiet:hover { opacity: 1; }
 
 .btn {
   font: inherit;
