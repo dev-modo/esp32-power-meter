@@ -123,6 +123,37 @@ just change `PIN_UART_RX` / `PIN_UART_TX`.
 into 5V/VIN, never both at once. Some clone devkits omit the protection diode,
 and back-feeding the USB rail can damage the board or the host.
 
+### Using an ESP32-C3 instead
+
+Supported — the firmware detects the chip and switches pins itself, so the same
+source builds for both. **But the C3 is not a smaller ESP32**, and three facts
+from the SDK force a different pinout:
+
+- **`SOC_UART_NUM` is 2.** There is no `Serial2` at all, only `Serial0`/`Serial1`.
+- **`SOC_GPIO_PIN_COUNT` is 22.** GPIO25 and GPIO13 simply do not exist.
+- **GPIO2, GPIO8 and GPIO9 are strapping pins** (GPIO9 is the BOOT button on most
+  devkits), and GPIO18/19 are the USB Serial/JTAG lines.
+
+| | classic ESP32 | ESP32-C3 |
+|---|---|---|
+| PZEM **TX** → | GPIO4 | **GPIO4** |
+| PZEM **RX** → | GPIO25 | **GPIO5** |
+| LED | GPIO2 | **GPIO3** |
+| Button | GPIO13 | **GPIO10** |
+| UART | `Serial2` | `Serial1` |
+
+The PZEM's GND and 3V3 connections are unchanged, and the data pair still
+crosses over.
+
+One practical difference: **a C3 devkit's onboard LED is an addressable RGB on
+GPIO8**, not a plain one, so `digitalWrite` will not drive it. Wire your own LED
+to GPIO3 as in the table.
+
+Build it with `pio run -e esp32c3`, or pick **ESP32C3 Dev Module** in the Arduino
+IDE (still set Partition Scheme to Minimal SPIFFS). Verified: **62% flash, 11%
+RAM** — it fits comfortably, and uses *less* RAM than the classic ESP32 despite
+having less to spare.
+
 ## LED status codes
 
 | LED pattern              | Meaning                                                  |

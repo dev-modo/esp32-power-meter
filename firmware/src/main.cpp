@@ -60,20 +60,38 @@
 // ----------------------------------------------------------------------------
 // Pin assignments — MUST match the wiring table in README.md
 // ----------------------------------------------------------------------------
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+// ---- ESP32-C3 ----------------------------------------------------------
+// The C3 is a different chip, not a smaller ESP32, and three things force a
+// different pinout. Verified against the installed SDK, not assumed:
+//   * SOC_UART_NUM is 2, so there is no Serial2 at all -- only Serial0/Serial1.
+//   * SOC_GPIO_PIN_COUNT is 22, so GPIO25 and GPIO13 simply do not exist.
+//   * GPIO2, GPIO8 and GPIO9 are strapping pins (GPIO9 is the BOOT button on
+//     most devkits), and GPIO18/19 are the USB Serial/JTAG lines.
+// The pins below avoid all of those. Note the onboard LED on a C3 devkit is an
+// addressable RGB on GPIO8, not a plain one, so wire your own to GPIO3.
+#define PZEM_SERIAL Serial1
+static const int PIN_LED     = 3;   // external LED (onboard is RGB on GPIO8)
+static const int PIN_BUTTON  = 10;  // factory-reset button to GND, INPUT_PULLUP
+static const int PIN_UART_RX = 4;   // ESP32 receives here  <- wire to PZEM "TX"
+static const int PIN_UART_TX = 5;   // ESP32 transmits here -> wire to PZEM "RX"
+
+#else
+// ---- classic ESP32 (WROOM-32 etc.) --------------------------------------
+#define PZEM_SERIAL Serial2
 static const int PIN_LED     = 2;   // status LED (onboard LED on most devkits)
 static const int PIN_BUTTON  = 13;  // factory-reset button to GND, INPUT_PULLUP
 // UART2 for the PZEM. NOT GPIO16/17, the classic choice: those are wired to the
 // PSRAM on every WROVER, on -N*R2 WROOM variants and on PICO-D4, where using
 // them either fails silently or crashes. GPIO4/25 are free on every ESP32
-// module, and are Espressif's own UART2 defaults from arduino-esp32 3.x onward
-// (changed from 16/17 for exactly this reason). ESP32 UART routes through the
-// GPIO matrix, so any free pins work at 9600 baud.
+// module, and are Espressif's own UART2 defaults from arduino-esp32 3.x onward.
 // Named from the ESP32's point of view, and deliberately not "PIN_PZEM_RX/TX":
 // that reads like "the PZEM's RX pin" and invites wiring TX to TX, which is the
 // single most common reason a PZEM never answers.
 //   THE DATA LINES CROSS. Wire each one to the OPPOSITE label on the PZEM:
 static const int PIN_UART_RX = 4;   // ESP32 receives here  <- wire to PZEM "TX"
 static const int PIN_UART_TX = 25;  // ESP32 transmits here -> wire to PZEM "RX"
+#endif
 
 // ----------------------------------------------------------------------------
 // Behaviour constants
@@ -221,7 +239,7 @@ static bool             gTlsReady = false;
 
 // Library signature is (port, receivePin, transmitPin) — receive first, both
 // from the ESP32's side.
-PZEM004Tv30 pzem(Serial2, PIN_UART_RX, PIN_UART_TX);
+PZEM004Tv30 pzem(PZEM_SERIAL, PIN_UART_RX, PIN_UART_TX);
 
 WiFiManager wm;
 Preferences prefs;
