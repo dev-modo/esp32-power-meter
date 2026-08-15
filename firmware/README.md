@@ -149,10 +149,41 @@ WiFi network again.
    pop up automatically; if not, browse to **http://192.168.4.1**.
 3. Tap **Configure WiFi**, pick your network and enter its password.
 4. Fill in the three extra fields:
-   - **Server URL** — where the ingest server runs, e.g. `http://192.168.1.8:8000`
-     (plain `http://`; the firmware does not do TLS)
+   - **Server URL** — the **plain `http://` LAN address** of the backend, e.g.
+     `http://192.168.1.8:8000`. See the note below — do not put the public
+     HTTPS address here.
    - **API key** — leave empty unless the server was started with an `API_KEY`
    - **Device ID** — default `powermeter-01`; change it if you run several meters
+
+> [!IMPORTANT]
+> **The server URL is not in the firmware, and the ESP32 does not use the public
+> HTTPS address.** Both of those surprise people, so:
+>
+> **It is not hardcoded** because it lives in NVS instead. You type it once into
+> the pairing portal and it survives reboots, reflashes and even a WiFi factory
+> reset — so you can move the server or change its port without rebuilding and
+> reflashing the firmware.
+>
+> **It must be `http://`, not `https://`.** This firmware uses plain
+> `HTTPClient` with no `WiFiClientSecure`, so it has no TLS at all. Given an
+> `https://` URL it simply fails every POST, and the LED sits on the
+> server-unreachable slow blink.
+>
+> That is deliberate, because **the backend has two different consumers with
+> different needs**:
+>
+> | Who | URL | Why |
+> |---|---|---|
+> | **ESP32** | `http://192.168.1.8:8000` | Same LAN as the server. Talks straight to the container, skipping the reverse proxy. No TLS needed or wanted — it is local traffic, and TLS on an MCU costs flash, RAM and battery for nothing here. |
+> | **Dashboard** (browser) | `https://powermeter.dilanp.duckdns.org` | Runs from GitHub Pages over HTTPS, from anywhere. Browsers block an HTTPS page calling a plain-HTTP backend, so this one *must* be TLS, which is what the reverse proxy provides. |
+>
+> Pointing the ESP32 at the public HTTPS name would also be a needless round
+> trip: out to your router, back in through the proxy, to reach a box sitting on
+> the same switch.
+>
+> If you ever need the meter to report from *outside* your LAN, that is when the
+> firmware would need real TLS — `WiFiClientSecure` plus a CA bundle or
+> `setInsecure()`. It does not have that today.
 5. Save. The device connects (medium blink), then goes **solid ON** once the
    server accepts data. Watch the serial monitor at **115200 baud** for logs.
 
