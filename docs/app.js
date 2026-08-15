@@ -20,7 +20,7 @@
    Change this one line to repoint the published dashboard; whatever you save
    in the settings panel overrides it for your browser only. Leave it as ''
    to force the settings panel open on a first visit instead. */
-const DEFAULT_BASE_URL   = 'https://restoration-apr-spin-sessions.trycloudflare.com';
+const DEFAULT_BASE_URL   = 'https://powermeter.dilanp.duckdns.org';
 
 const STORAGE_KEY        = 'powermeter.baseUrl';
 const LATEST_INTERVAL_MS = 1000;    // ESP32 posts every 1 s, so poll every 1 s
