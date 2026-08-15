@@ -57,11 +57,26 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
 # How long to keep readings, in days. 0 disables the cleanup entirely.
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "90"))
 
-# A device is considered "online" if its newest reading is younger than this.
-# The ESP32 posts every 1 s, so 10 s means ~10 missed posts in a row. Kept
-# deliberately loose so a brief WiFi or network hiccup doesn't flap the
-# dashboard's status pill; lower it if you want faster offline detection.
-ONLINE_THRESHOLD_S = 10.0
+# Fallback "online" window, used only for readings that carry no interval_s
+# (older firmware, or rows predating that field).
+ONLINE_THRESHOLD_S = float(os.environ.get("ONLINE_THRESHOLD_S", "10"))
+
+
+def online_window(interval_s) -> float:
+    """
+    How stale a reading may be before the device counts as offline.
+
+    Derived from the device's OWN reported cadence rather than a fixed number,
+    because that cadence now varies by two orders of magnitude: 1 s on a LAN,
+    but 30-60 s over cellular, where a 1 s cadence would cost gigabytes a month.
+    A fixed 10 s window would mark every remote device permanently offline.
+
+    Three missed reports plus 10 s of grace, floored at 30 s so a fast LAN
+    device still tolerates a brief WiFi hiccup without the pill flapping.
+    """
+    if not interval_s or interval_s <= 0:
+        return ONLINE_THRESHOLD_S
+    return max(3.0 * float(interval_s) + 10.0, 30.0)
 
 log = logging.getLogger("powermeter")
 
@@ -100,12 +115,20 @@ def init_db() -> None:
                 frequency REAL,            -- Hz
                 pf        REAL,            -- power factor 0..1
                 rssi      INTEGER,         -- WiFi signal strength, dBm
-                uptime_s  INTEGER          -- seconds since ESP32 boot
+                uptime_s  INTEGER,         -- seconds since ESP32 boot
+                interval_s INTEGER         -- device's own reporting cadence
             );
             CREATE INDEX IF NOT EXISTS idx_readings_device_ts ON readings (device_id, ts);
             CREATE INDEX IF NOT EXISTS idx_readings_ts ON readings (ts);
             """
         )
+        # Migration for databases created before interval_s existed. SQLite has
+        # no "ADD COLUMN IF NOT EXISTS", and re-adding raises OperationalError,
+        # so probe the schema rather than catching a generic exception.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(readings)")}
+        if "interval_s" not in cols:
+            conn.execute("ALTER TABLE readings ADD COLUMN interval_s INTEGER")
+            log.info("migrated: added readings.interval_s")
         conn.commit()
     finally:
         conn.close()
@@ -181,6 +204,8 @@ class Reading(BaseModel):
     pf: Optional[float] = None
     rssi: Optional[int] = None
     uptime_s: Optional[int] = None
+    # The device tells us its own cadence so "online" can size itself.
+    interval_s: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +227,8 @@ def ingest(reading: Reading, x_api_key: Optional[str] = Header(default=None)):
             """
             INSERT INTO readings
                 (device_id, ts, voltage, "current", power, energy,
-                 frequency, pf, rssi, uptime_s)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 frequency, pf, rssi, uptime_s, interval_s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 reading.device_id,
@@ -216,6 +241,7 @@ def ingest(reading: Reading, x_api_key: Optional[str] = Header(default=None)):
                 reading.pf,
                 reading.rssi,
                 reading.uptime_s,
+                reading.interval_s,
             ),
         )
         conn.commit()
@@ -246,6 +272,7 @@ def latest(device_id: Optional[str] = None):
         raise HTTPException(status_code=404, detail="no data")
 
     age_s = time.time() - row["ts"]
+    interval_s = row["interval_s"] if "interval_s" in row.keys() else None
     return {
         "device_id": row["device_id"],
         "ts": row["ts"],
@@ -257,8 +284,12 @@ def latest(device_id: Optional[str] = None):
         "pf": row["pf"],
         "rssi": row["rssi"],
         "uptime_s": row["uptime_s"],
+        "interval_s": interval_s,
         "age_s": age_s,
-        "online": age_s < ONLINE_THRESHOLD_S,
+        # Also returned so the dashboard can size its own poll rate from it
+        # instead of hammering /api/latest once a second at any cadence.
+        "online_window_s": online_window(interval_s),
+        "online": age_s < online_window(interval_s),
     }
 
 

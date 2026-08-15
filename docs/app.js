@@ -23,7 +23,13 @@
 const DEFAULT_BASE_URL   = 'https://powermeter.dilanp.duckdns.org';
 
 const STORAGE_KEY        = 'powermeter.baseUrl';
-const LATEST_INTERVAL_MS = 1000;    // ESP32 posts every 1 s, so poll every 1 s
+// Starting poll rate. Adjusted at runtime from the interval_s the device
+// reports, because that cadence now ranges from 1 s on a LAN to 60 s over
+// cellular — polling once a second against a 30 s device wastes far more data
+// than the meter itself sends.
+let   latestIntervalMs   = 1000;
+const POLL_MIN_MS        = 1000;
+const POLL_MAX_MS        = 30000;
 const SLOW_INTERVAL_MS   = 60000;   // history + stats refresh
 const FETCH_TIMEOUT_MS   = 6000;    // abort hung requests so polls don't pile up
 const MAX_POINTS         = 500;     // server-side downsampling cap
@@ -428,6 +434,7 @@ async function pollLatest() {
       lastUpdateAt = Date.now();
       renderLatest(body);
       liveAppend(body);
+      retunePolling(body.interval_s);
     } else if (status === 404) {
       renderNoData();                              // empty DB: server ok, no samples
     }
@@ -448,6 +455,36 @@ async function refreshStats() {
   }
 }
 
+/**
+ * Match our poll rate to the device: half its cadence, so we never miss a
+ * reading by much but never poll far faster than data arrives. Clamped so a
+ * 1 s LAN device still feels live and a 60 s device does not leave the page
+ * looking frozen.
+ */
+function retunePolling(deviceIntervalS) {
+  if (!deviceIntervalS || deviceIntervalS <= 0) return;
+  const want = Math.min(POLL_MAX_MS, Math.max(POLL_MIN_MS, deviceIntervalS * 500));
+  if (want === latestIntervalMs) return;
+  latestIntervalMs = want;
+  if (latestTimer) {                       // rebuild the timer at the new rate
+    clearInterval(latestTimer);
+    latestTimer = setInterval(pollLatest, latestIntervalMs);
+  }
+  console.info(`Device reports every ${deviceIntervalS}s — polling every ${want / 1000}s`);
+}
+
+/* Stop polling entirely while the tab is hidden. This is the single biggest
+   saving available: a dashboard left open in a background tab would otherwise
+   pull data all day for nobody to look at. */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(latestTimer); clearInterval(slowTimer);
+    latestTimer = slowTimer = null;
+  } else if (baseUrl && !latestTimer) {
+    startPolling();                        // resume, and refresh immediately
+  }
+});
+
 /** (Re)start all polling — called on load and after settings change. */
 function startPolling() {
   clearInterval(latestTimer);
@@ -462,7 +499,7 @@ function startPolling() {
   pollLatest();
   refreshHistory();
   refreshStats();
-  latestTimer = setInterval(pollLatest, LATEST_INTERVAL_MS);
+  latestTimer = setInterval(pollLatest, latestIntervalMs);
   slowTimer   = setInterval(() => { refreshHistory(); refreshStats(); }, SLOW_INTERVAL_MS);
 }
 

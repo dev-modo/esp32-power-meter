@@ -50,6 +50,7 @@
 #include <WiFi.h>
 #include <WiFiManager.h>   // tzapu/WiFiManager
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>  // HTTPS transport for remote/cellular use
 #include <Preferences.h>   // NVS key/value storage (built into the ESP32 core)
 #include <PZEM004Tv30.h>   // mandulaj/PZEM-004T-v30
 #include <ArduinoJson.h>   // bblanchon/ArduinoJson v7
@@ -77,7 +78,26 @@ static const int PIN_UART_TX = 25;  // ESP32 transmits here -> wire to PZEM "RX"
 // ----------------------------------------------------------------------------
 // Behaviour constants
 // ----------------------------------------------------------------------------
-static const uint32_t REPORT_INTERVAL_MS   = 1000;   // contract: post every 1 s
+// Default reporting cadence. Configurable at runtime in the pairing portal,
+// because the right value differs enormously by transport — see the floors
+// below and the data table in README.md.
+static const uint32_t REPORT_INTERVAL_MS   = 1000;   // default: post every 1 s
+
+// Minimum permitted interval, per transport. Not one flat bound, on purpose:
+//   http  -> 1 s. Local network, ~700 bytes a post, costs nothing. Keep it.
+//   https -> 10 s. Remote/cellular. Even WITH keep-alive a post is ~700 bytes,
+//            and every dropped connection costs another ~4.3 KB handshake. At
+//            1 s over HTTPS this device would burn roughly 16 GB a month, which
+//            would quietly destroy a phone data plan. The floor is a guardrail,
+//            not a preference: 30-60 s is the sensible cellular setting.
+static const uint32_t MIN_INTERVAL_HTTP_MS  = 1000;
+static const uint32_t MIN_INTERVAL_HTTPS_MS = 10000;
+static const uint32_t MAX_INTERVAL_MS       = 3600000UL;   // 1 hour
+
+// TLS budgets. A P-384 handshake takes seconds, so the 700 ms plain-HTTP budget
+// cannot cover it — every HTTPS POST would time out before it finished.
+static const uint32_t TLS_CONNECT_TIMEOUT_MS = 8000;
+static const uint32_t TLS_HANDSHAKE_TIMEOUT_S = 10;  // SECONDS on both cores
 // Connect and read timeouts apply back-to-back, so the worst case for a dead
 // server is 2 x this. Keep it under the report interval so an unreachable
 // server slows the cadence a little instead of derailing it.
@@ -105,6 +125,20 @@ static const uint32_t BLINK_PORTAL_MS     = 150;
 static const uint32_t BLINK_CONNECTING_MS = 500;
 static const uint32_t BLINK_NO_SERVER_MS  = 1200;
 
+// Declared up here, ahead of everything else, on purpose. The Arduino IDE
+// auto-generates function prototypes and inserts them above the first
+// declaration in the file -- so any user-defined type used in a function
+// signature must exist before that point, or the .ino fails to compile with
+// "LedMode was not declared in this scope" while the identical code builds
+// fine under PlatformIO.
+enum LedMode : uint8_t {
+  LED_OFF,
+  LED_SOLID,             // WiFi OK + server reachable
+  LED_BLINK_PORTAL,      // config/pairing portal open   (150 ms)
+  LED_BLINK_CONNECTING,  // connecting to WiFi           (500 ms)
+  LED_BLINK_NO_SERVER,   // WiFi OK, server unreachable  (1200 ms)
+};
+
 static const char *AP_NAME           = "PowerMeter-Setup";
 static const char *NVS_NAMESPACE     = "powermeter";
 static const char *DEFAULT_DEVICE_ID = "powermeter-01";
@@ -116,6 +150,75 @@ static const char *DEFAULT_DEVICE_ID = "powermeter-01";
 // The PZEM-004T "100 A" unit speaks the same Modbus-RTU protocol as the v3.0,
 // so this library drives it fine. The constructor starts Serial2 at 9600 baud
 // on the given pins.
+// Trust anchors for the HTTPS path. BOTH ISRG roots are embedded on purpose.
+//
+// Let's Encrypt currently serves: leaf <- YE2 <- Root YE <- ISRG Root X2,
+// where X2 is cross-signed by X1 and X1 itself is never sent. Verified
+// against the live server, either root alone validates that chain today --
+// but each fails in a different future:
+//
+//   X1 alone: breaks the day LE stops sending the X2 cross-sign, because
+//             nothing in the trust store matches until that 4th cert arrives.
+//   X2 alone: breaks if the certificate is ever re-issued as RSA.
+//
+// Embedding both costs ~2.7 KB and removes both failure modes.
+// mbedtls_x509_crt_parse() accepts concatenated PEM blocks.
+static const char ROOT_CA_PEM[] PROGMEM =
+    // ISRG Root X2 - ECDSA P-384, expires 2040-09-17
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n"
+    "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n"
+    "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n"
+    "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n"
+    "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n"
+    "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n"
+    "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n"
+    "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n"
+    "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n"
+    "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n"
+    "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n"
+    "/q4AaOeMSQ+2b1tbFfLn\n"
+    "-----END CERTIFICATE-----\n"
+    // ISRG Root X1 - RSA 4096, expires 2035-06-04
+    "-----BEGIN CERTIFICATE-----\n"
+    "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\n"
+    "-----END CERTIFICATE-----\n";
+
+// Transport objects. Both are file-scope so the TLS session survives across
+// POSTs — see the comment in readAndReport() for why that is mandatory.
+static WiFiClientSecure gTlsClient;
+static WiFiClient       gPlainClient;
+static HTTPClient       gHttp;
+static bool             gTlsReady = false;
+
 // Library signature is (port, receivePin, transmitPin) — receive first, both
 // from the ESP32's side.
 PZEM004Tv30 pzem(Serial2, PIN_UART_RX, PIN_UART_TX);
@@ -127,6 +230,48 @@ Ticker      ledTicker;
 // Runtime copies of the persisted settings
 String gServerUrl;  // e.g. "http://192.168.1.8:8000" (no trailing slash)
 String gApiKey;     // may be empty -> X-API-Key header is omitted
+uint32_t gIntervalMs = REPORT_INTERVAL_MS;  // configured cadence, before clamping
+
+// True when the configured server URL is https:// (case-insensitive).
+static bool usingHttps() {
+  String u = gServerUrl;
+  u.toLowerCase();
+  return u.startsWith("https://");
+}
+
+/**
+ * The interval actually used: whatever is configured, clamped to this
+ * transport's floor and the global ceiling. Clamping here rather than at save
+ * time means the floor follows the URL — switch the same device from the LAN
+ * to the remote HTTPS endpoint and its cadence backs off on its own, with no
+ * way to accidentally leave it hammering a metered link once a second.
+ */
+static uint32_t effectiveIntervalMs() {
+  uint32_t want = gIntervalMs ? gIntervalMs : REPORT_INTERVAL_MS;
+  uint32_t floor_ = usingHttps() ? MIN_INTERVAL_HTTPS_MS : MIN_INTERVAL_HTTP_MS;
+  if (want < floor_)         want = floor_;
+  if (want > MAX_INTERVAL_MS) want = MAX_INTERVAL_MS;
+  return want;
+}
+
+/**
+ * One-time TLS setup. Cheap, but must happen before the first HTTPS POST.
+ *
+ * setHandshakeTimeout() is the important one and is easy to miss: it defaults
+ * to 120 SECONDS and is completely independent of setConnectTimeout(). Without
+ * it, one stalled handshake — trivially common on a flaky hotspot — blocks
+ * loop() for two minutes, freezing the button, the LED and the meter reads.
+ * The argument is in SECONDS on both cores.
+ */
+static void setupTls() {
+  if (gTlsReady) return;
+  gTlsClient.setCACert(ROOT_CA_PEM);
+  gTlsClient.setHandshakeTimeout(TLS_HANDSHAKE_TIMEOUT_S);
+  gTlsReady = true;
+  Serial.printf("[tls] enabled, handshake timeout %us, roots: ISRG X1 + X2\n",
+                (unsigned)TLS_HANDSHAKE_TIMEOUT_S);
+}
+
 String gDeviceId;   // e.g. "powermeter-01"
 
 // Portal text fields — created in setup() after loading NVS so they can be
@@ -134,6 +279,7 @@ String gDeviceId;   // e.g. "powermeter-01"
 WiFiManagerParameter *paramServerUrl = nullptr;
 WiFiManagerParameter *paramApiKey    = nullptr;
 WiFiManagerParameter *paramDeviceId  = nullptr;
+WiFiManagerParameter *paramInterval  = nullptr;
 
 int gConsecutiveFailures = 0;  // failed POSTs in a row (any success resets)
 
@@ -144,13 +290,6 @@ int gConsecutiveFailures = 0;  // failed POSTs in a row (any success resets)
 // codes stay accurate even while WiFiManager blocks inside the config portal
 // or during the initial connection attempt.
 // ----------------------------------------------------------------------------
-enum LedMode : uint8_t {
-  LED_OFF,
-  LED_SOLID,             // WiFi OK + server reachable
-  LED_BLINK_PORTAL,      // config/pairing portal open   (150 ms)
-  LED_BLINK_CONNECTING,  // connecting to WiFi           (500 ms)
-  LED_BLINK_NO_SERVER,   // WiFi OK, server unreachable  (1200 ms)
-};
 
 static LedMode gLedMode = LED_OFF;
 
@@ -193,6 +332,7 @@ static void loadSettings() {
   gServerUrl = prefs.getString("server_url", "");
   gApiKey    = prefs.getString("api_key", "");
   gDeviceId  = prefs.getString("device_id", DEFAULT_DEVICE_ID);
+  gIntervalMs = prefs.getUInt("interval_ms", REPORT_INTERVAL_MS);
   prefs.end();
 
   // Normalise: no trailing slash, we append "/api/ingest" ourselves.
@@ -201,6 +341,9 @@ static void loadSettings() {
   Serial.printf("[cfg] server_url = \"%s\"\n", gServerUrl.c_str());
   Serial.printf("[cfg] api_key    = %s\n", gApiKey.isEmpty() ? "(not set)" : "(set, hidden)");
   Serial.printf("[cfg] device_id  = \"%s\"\n", gDeviceId.c_str());
+  Serial.printf("[cfg] interval   = %lu ms configured, %lu ms in use (%s floor)\n",
+                (unsigned long)gIntervalMs, (unsigned long)effectiveIntervalMs(),
+                usingHttps() ? "https" : "http");
 }
 
 // Called by WiFiManager when the user hits "Save" in the portal.
@@ -210,6 +353,15 @@ static void onPortalSave() {
   gServerUrl = paramServerUrl->getValue();
   gApiKey    = paramApiKey->getValue();
   gDeviceId  = paramDeviceId->getValue();
+
+  // Interval arrives in seconds; 0/blank/garbage falls back to the default
+  // rather than producing a busy loop.
+  {
+    String iv = paramInterval ? String(paramInterval->getValue()) : String("");
+    iv.trim();
+    uint32_t secs = (uint32_t)iv.toInt();
+    gIntervalMs = secs > 0 ? secs * 1000UL : REPORT_INTERVAL_MS;
+  }
 
   gServerUrl.trim();
   gApiKey.trim();
@@ -234,6 +386,7 @@ static void onPortalSave() {
   prefs.putString("server_url", gServerUrl);
   prefs.putString("api_key", gApiKey);
   prefs.putString("device_id", gDeviceId);
+  prefs.putUInt("interval_ms", gIntervalMs);
   prefs.end();
 
   Serial.println("[cfg] portal settings saved to NVS");
@@ -429,6 +582,10 @@ static void readAndReport() {
   setFieldOrNull(doc, "pf",        pf);
   doc["rssi"]     = WiFi.RSSI();                      // dBm, int
   doc["uptime_s"] = (uint32_t)(millis() / 1000UL);    // seconds since boot
+  // Tell the server our cadence so it can size "online" itself instead of
+  // assuming a fixed 10 s, which would mark a 30 s cellular device permanently
+  // offline.
+  doc["interval_s"] = (uint32_t)(effectiveIntervalMs() / 1000UL);
 
   String body;
   serializeJson(doc, body);
@@ -445,11 +602,27 @@ static void readAndReport() {
   }
 
   String url = gServerUrl + "/api/ingest";
+  bool secure = usingHttps();
+  if (secure) setupTls();
 
-  HTTPClient http;
-  http.setConnectTimeout(HTTP_TIMEOUT_MS);
-  http.setTimeout(HTTP_TIMEOUT_MS);
-  http.begin(url);  // plain http:// — see README for https notes
+  // gHttp and the two clients are file-scope statics, NOT locals. That is
+  // load-bearing, not style: ~HTTPClient() calls _client->stop() unconditionally,
+  // ignoring setReuse(), so a stack-local HTTPClient would tear the TLS session
+  // down and re-handshake on every single POST. Keeping both alive is what makes
+  // keep-alive real, and over cellular the handshake is ~4.3 KB — far more than
+  // the reading itself.
+  gHttp.setReuse(true);
+
+  if (secure) {
+    gHttp.setConnectTimeout(TLS_CONNECT_TIMEOUT_MS);
+    gHttp.setTimeout(TLS_CONNECT_TIMEOUT_MS);
+    gHttp.begin(gTlsClient, url);
+  } else {
+    gHttp.setConnectTimeout(HTTP_TIMEOUT_MS);
+    gHttp.setTimeout(HTTP_TIMEOUT_MS);
+    gHttp.begin(gPlainClient, url);
+  }
+  HTTPClient &http = gHttp;
   http.addHeader("Content-Type", "application/json");
   if (!gApiKey.isEmpty()) {
     http.addHeader("X-API-Key", gApiKey);  // only sent when a key is set
@@ -503,12 +676,20 @@ void setup() {
   paramApiKey = new WiFiManagerParameter(
       "api_key", "API key (leave empty if the server has none)",
       gApiKey.c_str(), 64);
+  {
+    char ivbuf[12];
+    snprintf(ivbuf, sizeof(ivbuf), "%lu", (unsigned long)(gIntervalMs / 1000UL));
+    paramInterval = new WiFiManagerParameter(
+        "interval_s", "Report interval (seconds)", ivbuf, 8,
+        " placeholder=\"1 on your LAN, 30-60 over mobile data\"");
+  }
   paramDeviceId = new WiFiManagerParameter(
       "device_id", "Device ID", gDeviceId.c_str(), 32);
 
   wm.addParameter(paramServerUrl);
   wm.addParameter(paramApiKey);
   wm.addParameter(paramDeviceId);
+  wm.addParameter(paramInterval);
 
   wm.setAPCallback(onPortalOpened);        // LED -> fast blink when portal opens
   wm.setSaveConfigCallback(onPortalSave);  // fires on "Save" from the WiFi page
@@ -591,9 +772,9 @@ void loop() {
   handleButton(now);
   handleWifi(now);
 
-  // Report on a fixed 1-second cadence.
+  // Report on the configured cadence, clamped to the floor for this transport.
   static uint32_t lastReportMs = 0;
-  if (now - lastReportMs >= REPORT_INTERVAL_MS) {
+  if (now - lastReportMs >= effectiveIntervalMs()) {
     lastReportMs = now;
     readAndReport();
   }

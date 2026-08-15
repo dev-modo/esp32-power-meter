@@ -115,7 +115,7 @@ GPIO4 and GPIO25 are free on every variant, and are Espressif's own UART2
 defaults from arduino-esp32 3.x onward — changed from 16/17 to *"avoid conflicts
 with other peripherals."* The ESP32 routes UART through its GPIO matrix, so any
 free pins work. If you have a plain WROOM-32 and prefer 16/17, they will work;
-just change `PIN_PZEM_RX` / `PIN_PZEM_TX`.
+just change `PIN_UART_RX` / `PIN_UART_TX`.
 
 ### Powering it
 
@@ -181,9 +181,10 @@ WiFi network again.
 > trip: out to your router, back in through the proxy, to reach a box sitting on
 > the same switch.
 >
-> If you ever need the meter to report from *outside* your LAN, that is when the
-> firmware would need real TLS — `WiFiClientSecure` plus a CA bundle or
-> `setInsecure()`. It does not have that today.
+> To report from *outside* your LAN — a remote site on a phone hotspot — put the
+> public `https://` URL here instead. The firmware does TLS now; see
+> [Remote / cellular operation](#remote--cellular-operation) below, and note the
+> interval floor, because data cost is the real constraint there.
 5. Save. The device connects (medium blink), then goes **solid ON** once the
    server accepts data. Watch the serial monitor at **115200 baud** for logs.
 
@@ -225,6 +226,52 @@ on a laptop with no hardware:
 ```bash
 python3 firmware/test/test_button_logic.py    # 12 passed, 0 failed
 ```
+
+## Remote / cellular operation
+
+The firmware speaks HTTPS, so the meter can live at a remote site on a phone
+hotspot and report to the public endpoint. Put the `https://` URL in the portal
+and it switches transport automatically.
+
+**Data is the binding constraint, not bandwidth.** Neither ESP32 core supports
+TLS session resumption, so any POST on a fresh connection pays a full handshake —
+about 4.3 KB, measured against the live server, versus ~700 bytes for the reading
+itself. Keep-alive amortises that while the connection survives, but cellular NAT
+drops idle connections regularly.
+
+| Interval | Roughly per month |
+|---|---|
+| 1 s | **~16 GB** — would destroy a phone plan |
+| 10 s | ~1.6 GB |
+| **30 s** | **~530 MB** — recommended for cellular |
+| 60 s | ~265 MB |
+
+So the portal has a **Report interval** field, and the firmware enforces a floor
+that follows the transport: **1 s on `http://`**, **10 s on `https://`**. The
+clamp is applied at send time, not at save time — move the same device from your
+LAN to the remote URL and its cadence backs off on its own. You cannot
+accidentally leave it hammering a metered link once a second.
+
+The device reports its own cadence to the server, which sizes the "online" window
+from it (3 missed reports + 10 s, floored at 30 s) instead of assuming 10 s. The
+dashboard likewise polls at half the device's rate rather than once a second, and
+stops entirely while its tab is hidden.
+
+### Things that bite specifically on a hotspot
+
+- **iPhone Personal Hotspot is 5 GHz-only unless "Maximize Compatibility" is on.**
+  The ESP32 is 2.4 GHz only, so it will never see the network. Turn that on
+  *before* you debug anything else.
+- **Certificate validation does not need a clock.** Both cores ship mbedTLS with
+  `MBEDTLS_HAVE_TIME_DATE` disabled, so the usual "NTP first or TLS fails" trap
+  does not apply — verified in both cores' sdkconfigs. Signature-chain and
+  hostname checks still run; only expiry is skipped.
+- **The server must keep TLS 1.2 enabled.** Neither core has a TLS 1.3 client, so
+  hardening the proxy to 1.3-only would silently kill the device.
+- **Two root CAs are embedded**, ISRG Root X1 and X2. Either validates the chain
+  today, but each fails in a different future — X1 alone breaks if Let's Encrypt
+  stops sending the X2 cross-sign, X2 alone breaks if the cert is re-issued as
+  RSA. Both together cost ~2.7 KB.
 
 ## Reporting
 
